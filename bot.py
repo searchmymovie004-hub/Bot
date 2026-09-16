@@ -1,20 +1,3 @@
-"""
-ZEE BOTS
-Premium Image → Direct Link Telegram Bot
-
-Features:
-- Premium UI / messaging
-- Image → Cloudinary
-- Direct HTTPS image link
-- Open Image button
-- Upload Another button
-- Help + Back navigation
-- No Firebase
-- No database
-- Telegram chat itself keeps the user's previous links
-- Render Web Service compatible
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -23,11 +6,8 @@ import logging
 import os
 from io import BytesIO
 from threading import Thread
-from typing import Any
 
-import cloudinary
-import cloudinary.uploader
-
+import requests
 from flask import Flask
 
 from telegram import (
@@ -52,44 +32,34 @@ from telegram.ext import (
 # =========================================================
 
 logging.basicConfig(
-    format=(
-        "%(asctime)s | "
-        "%(name)s | "
-        "%(levelname)s | "
-        "%(message)s"
-    ),
+    format="%(asctime)s | %(levelname)s | %(message)s",
     level=logging.INFO,
 )
 
-LOGGER = logging.getLogger("ZEE_BOTS")
+logger = logging.getLogger("ZEE_BOTS")
 
 
 # =========================================================
-# RENDER WEB SERVER
+# RENDER HEALTH SERVER
 # =========================================================
 
-web_app = Flask(__name__)
+app = Flask(__name__)
 
 
-@web_app.route("/")
+@app.route("/")
 def home():
     return "ZEE BOTS Image Link Bot is running!", 200
 
 
-@web_app.route("/health")
+@app.route("/health")
 def health():
     return "OK", 200
 
 
-def run_http_server() -> None:
+def run_server():
     port = int(os.getenv("PORT", "10000"))
 
-    LOGGER.info(
-        "Starting HTTP server on port %s",
-        port,
-    )
-
-    web_app.run(
+    app.run(
         host="0.0.0.0",
         port=port,
         debug=False,
@@ -97,217 +67,144 @@ def run_http_server() -> None:
     )
 
 
-def start_http_server() -> None:
+def start_server():
     thread = Thread(
-        target=run_http_server,
+        target=run_server,
         daemon=True,
-        name="render-http-server",
     )
-
     thread.start()
-
-    LOGGER.info(
-        "Render HTTP server started"
-    )
 
 
 # =========================================================
 # ENVIRONMENT
 # =========================================================
 
-def get_environment() -> dict[str, str]:
-
-    required = [
-        "BOT_TOKEN",
-        "CLOUDINARY_CLOUD_NAME",
-        "CLOUDINARY_API_KEY",
-        "CLOUDINARY_API_SECRET",
-    ]
-
-    values = {
-        key: os.getenv(key, "").strip()
-        for key in required
-    }
-
-    missing = [
-        key
-        for key, value in values.items()
-        if not value
-    ]
-
-    if missing:
-        raise RuntimeError(
-            "Missing environment variable(s): "
-            + ", ".join(missing)
-        )
-
-    return values
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "").strip()
 
 
-# =========================================================
-# CLOUDINARY
-# =========================================================
-
-def configure_cloudinary(
-    settings: dict[str, str],
-) -> None:
-
-    cloudinary.config(
-        cloud_name=settings[
-            "CLOUDINARY_CLOUD_NAME"
-        ],
-        api_key=settings[
-            "CLOUDINARY_API_KEY"
-        ],
-        api_secret=settings[
-            "CLOUDINARY_API_SECRET"
-        ],
-        secure=True,
+if not BOT_TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN environment variable is missing."
     )
 
-    LOGGER.info(
-        "Cloudinary configured successfully"
-    )
-
-
-def upload_to_cloudinary(
-    buffer: BytesIO,
-) -> dict[str, Any]:
-
-    options: dict[str, Any] = {
-        "resource_type": "image",
-        "folder": "zee_bots",
-    }
-
-    # Optional upload preset.
-    preset = os.getenv(
-        "CLOUDINARY_UPLOAD_PRESET",
-        "",
-    ).strip()
-
-    if preset:
-        options["upload_preset"] = preset
-
-    return cloudinary.uploader.upload(
-        buffer,
-        **options,
+if not IMGBB_API_KEY:
+    raise RuntimeError(
+        "IMGBB_API_KEY environment variable is missing."
     )
 
 
 # =========================================================
-# PREMIUM MESSAGES
+# PREMIUM TEXT
 # =========================================================
 
-WELCOME_TEXT = (
-    "╭━━━「 🖼️ <b>ZEE BOTS</b> 」━━━╮\n"
-    "┃\n"
-    "┃  <b>IMAGE → DIRECT LINK</b>\n"
-    "┃\n"
-    "┃  Turn your image into a\n"
-    "┃  clean &amp; direct HTTPS URL.\n"
-    "┃\n"
-    "┃  ⚡ <b>Fast Processing</b>\n"
-    "┃  🔗 <b>Direct Image URL</b>\n"
-    "┃  ☁️ <b>Cloud Hosted</b>\n"
-    "┃  🔒 <b>Secure HTTPS</b>\n"
-    "┃\n"
-    "┃  <i>Send an image to get started.</i>\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━╯"
-)
+WELCOME_TEXT = """
+╭━━━「 🖼️ <b>ZEE BOTS</b> 」━━━╮
+┃
+┃  <b>IMAGE → DIRECT LINK</b>
+┃
+┃  Convert your image into a
+┃  clean &amp; direct HTTPS URL.
+┃
+┃  ⚡ <b>Fast Processing</b>
+┃  🔗 <b>Direct Image URL</b>
+┃  ☁️ <b>Reliable Hosting</b>
+┃  🔒 <b>HTTPS Link</b>
+┃
+┃  <i>Send an image to get started.</i>
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-HELP_TEXT = (
-    "╭━━━「 ℹ️ <b>HELP CENTER</b> 」━━━╮\n"
-    "┃\n"
-    "┃  <b>How to use ZEE BOTS</b>\n"
-    "┃\n"
-    "┃ ① Send an image to this chat.\n"
-    "┃\n"
-    "┃ ② The image will be processed\n"
-    "┃    automatically.\n"
-    "┃\n"
-    "┃ ③ Your direct HTTPS image URL\n"
-    "┃    will be generated.\n"
-    "┃\n"
-    "┃ ④ Tap <b>Open Image</b> to open it.\n"
-    "┃\n"
-    "┃ ⑤ Your previous links remain in\n"
-    "┃    this Telegram chat history.\n"
-    "┃\n"
-    "┃ <b>Supported:</b>\n"
-    "┃ JPG • JPEG • PNG • WEBP\n"
-    "┃\n"
-    "┃  No separate account history or\n"
-    "┃  database is required.\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━╯"
-)
+HELP_TEXT = """
+╭━━━「 ℹ️ <b>HELP CENTER</b> 」━━━╮
+┃
+┃  <b>How to use ZEE BOTS</b>
+┃
+┃ ① Send an image to this chat.
+┃
+┃ ② The bot processes your image.
+┃
+┃ ③ A direct HTTPS image URL
+┃    will be generated.
+┃
+┃ ④ Tap <b>Open Image</b> to open it.
+┃
+┃ ⑤ Previous links remain in this
+┃    Telegram chat as your history.
+┃
+┃ <b>Supported:</b>
+┃ JPG • JPEG • PNG • WEBP
+┃
+┃  No Firebase or database is used.
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-PROCESSING_TEXT = (
-    "╭━━━「 ⚡ <b>PROCESSING</b> 」━━━╮\n"
-    "┃\n"
-    "┃  Your image is being processed.\n"
-    "┃\n"
-    "┃  ⏳ <i>Please wait...</i>\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━╯"
-)
+READY_TEXT = """
+╭━━━「 🖼️ <b>READY</b> 」━━━╮
+┃
+┃  Send your image now.
+┃
+┃  ⚡ Your direct image link
+┃  will be generated automatically.
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-DOWNLOAD_FAILED_TEXT = (
-    "╭━━━「 ❌ <b>DOWNLOAD FAILED</b> 」━━━╮\n"
-    "┃\n"
-    "┃  We couldn't download your image.\n"
-    "┃\n"
-    "┃  Please send the image again.\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━━━━━╯"
-)
+PROCESSING_TEXT = """
+╭━━━「 ⚡ <b>PROCESSING</b> 」━━━╮
+┃
+┃  Your image is being processed.
+┃
+┃  ⏳ <i>Please wait a moment...</i>
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-UPLOAD_FAILED_TEXT = (
-    "╭━━━「 ❌ <b>UPLOAD FAILED</b> 」━━━╮\n"
-    "┃\n"
-    "┃  We couldn't process your image.\n"
-    "┃\n"
-    "┃  Please try again.\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━━━━━╯"
-)
+DOWNLOAD_FAILED_TEXT = """
+╭━━━「 ❌ <b>DOWNLOAD FAILED</b> 」━━━╮
+┃
+┃  We couldn't download your image.
+┃
+┃  Please send it again.
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-IMAGE_ONLY_TEXT = (
-    "╭━━━「 ⚠️ <b>IMAGE REQUIRED</b> 」━━━╮\n"
-    "┃\n"
-    "┃  Please send an image to continue.\n"
-    "┃\n"
-    "┃  Supported formats:\n"
-    "┃  JPG • JPEG • PNG • WEBP\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━━━━━╯"
-)
+UPLOAD_FAILED_TEXT = """
+╭━━━「 ❌ <b>UPLOAD FAILED</b> 」━━━╮
+┃
+┃  We couldn't create your image link.
+┃
+┃  Please try again later.
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
-READY_TEXT = (
-    "╭━━━「 🖼️ <b>READY</b> 」━━━╮\n"
-    "┃\n"
-    "┃  Send your image now.\n"
-    "┃\n"
-    "┃  ⚡ <i>Your direct link will be\n"
-    "┃  generated automatically.</i>\n"
-    "┃\n"
-    "╰━━━━━━━━━━━━━━━━━━━━╯"
-)
+IMAGE_REQUIRED_TEXT = """
+╭━━━「 ⚠️ <b>IMAGE REQUIRED</b> 」━━━╮
+┃
+┃  Please send an image to continue.
+┃
+┃  Supported:
+┃  JPG • JPEG • PNG • WEBP
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━╯
+"""
 
 
 # =========================================================
 # KEYBOARDS
 # =========================================================
 
-def main_keyboard() -> InlineKeyboardMarkup:
-
+def main_keyboard():
     return InlineKeyboardMarkup(
         [
             [
@@ -320,8 +217,7 @@ def main_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def help_keyboard() -> InlineKeyboardMarkup:
-
+def help_keyboard():
     return InlineKeyboardMarkup(
         [
             [
@@ -338,16 +234,13 @@ def help_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def result_keyboard(
-    image_url: str,
-) -> InlineKeyboardMarkup:
-
+def result_keyboard(url: str):
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
                     "🌐 Open Image",
-                    url=image_url,
+                    url=url,
                 )
             ],
             [
@@ -367,14 +260,13 @@ def result_keyboard(
 
 
 # =========================================================
-# START
+# /START
 # =========================================================
 
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-
+):
     if not update.message:
         return
 
@@ -386,14 +278,13 @@ async def start(
 
 
 # =========================================================
-# HELP COMMAND
+# /HELP
 # =========================================================
 
 async def help_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-
+):
     if not update.message:
         return
 
@@ -405,14 +296,13 @@ async def help_command(
 
 
 # =========================================================
-# CALLBACK BUTTONS
+# BUTTON HANDLER
 # =========================================================
 
-async def button_callback(
+async def button_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-
+):
     query = update.callback_query
 
     if not query:
@@ -422,23 +312,9 @@ async def button_callback(
 
     action = query.data
 
-    # ---------------------------------------------
-    # BACK
-    # ---------------------------------------------
-
-    if action == "back":
-
-        await query.edit_message_text(
-            WELCOME_TEXT,
-            parse_mode=ParseMode.HTML,
-            reply_markup=main_keyboard(),
-        )
-
-        return
-
-    # ---------------------------------------------
+    # -----------------------------------------
     # HELP
-    # ---------------------------------------------
+    # -----------------------------------------
 
     if action == "help":
 
@@ -450,9 +326,23 @@ async def button_callback(
 
         return
 
-    # ---------------------------------------------
+    # -----------------------------------------
+    # BACK
+    # -----------------------------------------
+
+    if action == "back":
+
+        await query.edit_message_text(
+            WELCOME_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=main_keyboard(),
+        )
+
+        return
+
+    # -----------------------------------------
     # UPLOAD
-    # ---------------------------------------------
+    # -----------------------------------------
 
     if action == "upload":
 
@@ -466,13 +356,99 @@ async def button_callback(
 
 
 # =========================================================
+# IMGBB UPLOAD
+# =========================================================
+
+def upload_to_imgbb(
+    image_data: bytes,
+) -> str | None:
+
+    url = "https://api.imgbb.com/1/upload"
+
+    try:
+
+        response = requests.post(
+            url,
+            params={
+                "key": IMGBB_API_KEY,
+            },
+            files={
+                "image": (
+                    "image.jpg",
+                    image_data,
+                    "image/jpeg",
+                )
+            },
+            timeout=60,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not data.get("success"):
+            logger.error(
+                "ImgBB response unsuccessful: %s",
+                data,
+            )
+            return None
+
+        image_data_result = data.get(
+            "data",
+            {}
+        )
+
+        # Prefer direct display URL
+        direct_url = image_data_result.get(
+            "display_url"
+        )
+
+        if not direct_url:
+            direct_url = image_data_result.get(
+                "url"
+            )
+
+        if not direct_url:
+            direct_url = image_data_result.get(
+                "image",
+                {}
+            ).get("url")
+
+        if not direct_url:
+            logger.error(
+                "No direct image URL returned."
+            )
+            return None
+
+        return direct_url
+
+    except requests.RequestException as error:
+
+        logger.exception(
+            "ImgBB request failed: %s",
+            error,
+        )
+
+        return None
+
+    except Exception as error:
+
+        logger.exception(
+            "Unexpected ImgBB error: %s",
+            error,
+        )
+
+        return None
+
+
+# =========================================================
 # IMAGE HANDLER
 # =========================================================
 
 async def handle_image(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+):
 
     message = update.message
 
@@ -484,12 +460,15 @@ async def handle_image(
 
     user = message.from_user
 
-    if not user:
-        return
+    user_id = (
+        user.id
+        if user
+        else "unknown"
+    )
 
-    # ---------------------------------------------
+    # -----------------------------------------
     # PROCESSING MESSAGE
-    # ---------------------------------------------
+    # -----------------------------------------
 
     processing = await message.reply_text(
         PROCESSING_TEXT,
@@ -498,14 +477,13 @@ async def handle_image(
 
     buffer = BytesIO()
 
-    # ---------------------------------------------
-    # DOWNLOAD FROM TELEGRAM
-    # ---------------------------------------------
+    # -----------------------------------------
+    # DOWNLOAD TELEGRAM IMAGE
+    # -----------------------------------------
 
     try:
 
-        # Telegram photo list:
-        # smallest -> largest
+        # Highest resolution photo
         photo = message.photo[-1]
 
         telegram_file = await context.bot.get_file(
@@ -516,31 +494,24 @@ async def handle_image(
             buffer
         )
 
-        buffer.seek(0)
+        image_bytes = buffer.getvalue()
 
-        LOGGER.info(
-            "Image downloaded | user=%s",
-            user.id,
+        if not image_bytes:
+            raise ValueError(
+                "Downloaded image is empty."
+            )
+
+        logger.info(
+            "Image downloaded | user=%s | size=%s",
+            user_id,
+            len(image_bytes),
         )
 
-    except TelegramError:
+    except Exception as error:
 
-        LOGGER.exception(
-            "Telegram image download failed"
-        )
-
-        await processing.edit_text(
-            DOWNLOAD_FAILED_TEXT,
-            parse_mode=ParseMode.HTML,
-            reply_markup=help_keyboard(),
-        )
-
-        return
-
-    except Exception:
-
-        LOGGER.exception(
-            "Unexpected image download error"
+        logger.exception(
+            "Telegram download failed: %s",
+            error,
         )
 
         await processing.edit_text(
@@ -551,47 +522,27 @@ async def handle_image(
 
         return
 
-    # ---------------------------------------------
-    # CLOUDINARY UPLOAD
-    # ---------------------------------------------
+    # -----------------------------------------
+    # IMGBB UPLOAD
+    # -----------------------------------------
 
     try:
 
-        LOGGER.info(
-            "Uploading image | user=%s",
-            user.id,
+        direct_url = await asyncio.to_thread(
+            upload_to_imgbb,
+            image_bytes,
         )
 
-        result = await asyncio.to_thread(
-            upload_to_cloudinary,
-            buffer,
+    except Exception as error:
+
+        logger.exception(
+            "Upload thread failed: %s",
+            error,
         )
 
-        image_url = result.get(
-            "secure_url"
-        )
+        direct_url = None
 
-        if (
-            not isinstance(image_url, str)
-            or not image_url.startswith(
-                "https://"
-            )
-        ):
-            raise ValueError(
-                "Cloudinary did not return "
-                "a valid HTTPS URL."
-            )
-
-        LOGGER.info(
-            "Cloudinary upload successful | user=%s",
-            user.id,
-        )
-
-    except Exception:
-
-        LOGGER.exception(
-            "Cloudinary upload failed"
-        )
+    if not direct_url:
 
         await processing.edit_text(
             UPLOAD_FAILED_TEXT,
@@ -601,34 +552,32 @@ async def handle_image(
 
         return
 
-    # ---------------------------------------------
-    # SUCCESS MESSAGE
-    # ---------------------------------------------
+    # -----------------------------------------
+    # SUCCESS
+    # -----------------------------------------
 
     safe_url = html.escape(
-        image_url
+        direct_url
     )
 
-    success_text = (
-        "╭━━━「 ✅ <b>IMAGE READY</b> 」━━━╮\n"
-        "┃\n"
-        "┃  <b>Your direct image link is ready.</b>\n"
-        "┃\n"
-        "┃  🔗 <b>DIRECT URL</b>\n"
-        "┃\n"
-        "┃  <code>"
-        + safe_url
-        + "</code>\n"
-        "┃\n"
-        "┃  ⚡ Fast Processing\n"
-        "┃  ☁️ Cloud Hosted\n"
-        "┃  🔒 Secure HTTPS\n"
-        "┃\n"
-        "┃  <i>This link is kept in your\n"
-        "┃  Telegram chat history.</i>\n"
-        "┃\n"
-        "╰━━━━━━━━━━━━━━━━━━━━╯"
-    )
+    success_text = f"""
+╭━━━「 ✅ <b>IMAGE READY</b> 」━━━╮
+┃
+┃  <b>Your direct image link is ready.</b>
+┃
+┃  🔗 <b>DIRECT URL</b>
+┃
+┃  <code>{safe_url}</code>
+┃
+┃  ⚡ Fast Processing
+┃  ☁️ Image Hosted
+┃  🔒 HTTPS Link
+┃
+┃  <i>This link remains in your
+┃  Telegram chat history.</i>
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
 
     try:
 
@@ -636,36 +585,170 @@ async def handle_image(
             success_text,
             parse_mode=ParseMode.HTML,
             reply_markup=result_keyboard(
-                image_url
+                direct_url
             ),
+            disable_web_page_preview=True,
         )
 
-        LOGGER.info(
-            "Result sent successfully | user=%s",
-            user.id,
+        logger.info(
+            "Image link generated | user=%s | url=%s",
+            user_id,
+            direct_url,
         )
 
-    except TelegramError:
+    except TelegramError as error:
 
-        LOGGER.exception(
-            "Failed to edit result message"
+        logger.exception(
+            "Failed to send result: %s",
+            error,
         )
 
 
 # =========================================================
-# NON-IMAGE MESSAGES
+# DOCUMENT IMAGE SUPPORT
+# =========================================================
+
+async def handle_image_document(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    message = update.message
+
+    if not message or not message.document:
+        return
+
+    document = message.document
+
+    mime = (
+        document.mime_type or ""
+    ).lower()
+
+    allowed_mimes = {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+    }
+
+    if mime not in allowed_mimes:
+        await message.reply_text(
+            IMAGE_REQUIRED_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=help_keyboard(),
+        )
+        return
+
+    processing = await message.reply_text(
+        PROCESSING_TEXT,
+        parse_mode=ParseMode.HTML,
+    )
+
+    buffer = BytesIO()
+
+    try:
+
+        telegram_file = await context.bot.get_file(
+            document.file_id
+        )
+
+        await telegram_file.download_to_memory(
+            buffer
+        )
+
+        image_bytes = buffer.getvalue()
+
+        if not image_bytes:
+            raise ValueError(
+                "Empty image."
+            )
+
+    except Exception:
+
+        logger.exception(
+            "Document download failed"
+        )
+
+        await processing.edit_text(
+            DOWNLOAD_FAILED_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=help_keyboard(),
+        )
+
+        return
+
+    try:
+
+        direct_url = await asyncio.to_thread(
+            upload_to_imgbb,
+            image_bytes,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Document upload failed"
+        )
+
+        direct_url = None
+
+    if not direct_url:
+
+        await processing.edit_text(
+            UPLOAD_FAILED_TEXT,
+            parse_mode=ParseMode.HTML,
+            reply_markup=help_keyboard(),
+        )
+
+        return
+
+    safe_url = html.escape(
+        direct_url
+    )
+
+    success_text = f"""
+╭━━━「 ✅ <b>IMAGE READY</b> 」━━━╮
+┃
+┃  <b>Your direct image link is ready.</b>
+┃
+┃  🔗 <b>DIRECT URL</b>
+┃
+┃  <code>{safe_url}</code>
+┃
+┃  ⚡ Fast Processing
+┃  ☁️ Image Hosted
+┃  🔒 HTTPS Link
+┃
+┃  <i>This link remains in your
+┃  Telegram chat history.</i>
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+"""
+
+    await processing.edit_text(
+        success_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=result_keyboard(
+            direct_url
+        ),
+        disable_web_page_preview=True,
+    )
+
+
+# =========================================================
+# UNSUPPORTED MESSAGE
 # =========================================================
 
 async def unsupported_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+):
 
     if not update.message:
         return
 
     await update.message.reply_text(
-        IMAGE_ONLY_TEXT,
+        IMAGE_REQUIRED_TEXT,
         parse_mode=ParseMode.HTML,
         reply_markup=help_keyboard(),
     )
@@ -678,39 +761,35 @@ async def unsupported_message(
 async def error_handler(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+):
 
     error = context.error
 
     if isinstance(error, Conflict):
 
-        LOGGER.error(
-            "Another bot instance is already "
-            "polling this token."
+        logger.error(
+            "Telegram 409 Conflict: another "
+            "instance is using this bot token."
         )
 
     else:
 
-        LOGGER.exception(
-            "Unhandled Telegram error",
+        logger.exception(
+            "Unhandled bot error",
             exc_info=error,
         )
 
 
 # =========================================================
-# APPLICATION
+# BUILD APPLICATION
 # =========================================================
 
-def build_application(
-    settings: dict[str, str],
-) -> Application:
+def build_application():
 
     application = (
         Application
         .builder()
-        .token(
-            settings["BOT_TOKEN"]
-        )
+        .token(BOT_TOKEN)
         .build()
     )
 
@@ -730,7 +809,7 @@ def build_application(
         )
     )
 
-    # Image
+    # Telegram photos
     application.add_handler(
         MessageHandler(
             filters.PHOTO,
@@ -738,14 +817,22 @@ def build_application(
         )
     )
 
-    # Inline buttons
+    # Images sent as files/documents
     application.add_handler(
-        CallbackQueryHandler(
-            button_callback
+        MessageHandler(
+            filters.Document.IMAGE,
+            handle_image_document,
         )
     )
 
-    # Everything else
+    # Buttons
+    application.add_handler(
+        CallbackQueryHandler(
+            button_handler
+        )
+    )
+
+    # Unsupported messages
     application.add_handler(
         MessageHandler(
             filters.ALL,
@@ -753,7 +840,7 @@ def build_application(
         )
     )
 
-    # Errors
+    # Error handler
     application.add_error_handler(
         error_handler
     )
@@ -765,104 +852,43 @@ def build_application(
 # MAIN
 # =========================================================
 
-def main() -> None:
+def main():
 
-    LOGGER.info(
-        "========================================"
+    logger.info(
+        "===================================="
     )
 
-    LOGGER.info(
-        "Starting ZEE BOTS"
+    logger.info(
+        "ZEE BOTS starting..."
     )
 
-    LOGGER.info(
+    logger.info(
+        "Storage: ImgBB"
+    )
+
+    logger.info(
         "Firebase: DISABLED"
     )
 
-    LOGGER.info(
+    logger.info(
         "Database History: DISABLED"
     )
 
-    LOGGER.info(
+    logger.info(
         "Telegram Chat History: ENABLED"
     )
 
-    LOGGER.info(
-        "========================================"
+    logger.info(
+        "===================================="
     )
 
-    # Render HTTP server
-    start_http_server()
+    # Start Render web server
+    start_server()
 
-    # ---------------------------------------------
-    # Environment
-    # ---------------------------------------------
-
-    try:
-
-        settings = get_environment()
-
-        LOGGER.info(
-            "Environment configuration loaded"
-        )
-
-    except RuntimeError:
-
-        LOGGER.exception(
-            "Environment configuration error"
-        )
-
-        raise SystemExit(1)
-
-    # ---------------------------------------------
-    # Cloudinary
-    # ---------------------------------------------
+    # Build Telegram bot
+    application = build_application()
 
     try:
-
-        configure_cloudinary(
-            settings
-        )
-
-    except Exception:
-
-        LOGGER.exception(
-            "Cloudinary configuration failed"
-        )
-
-        raise SystemExit(1)
-
-    # ---------------------------------------------
-    # Telegram Application
-    # ---------------------------------------------
-
-    try:
-
-        application = build_application(
-            settings
-        )
-
-        LOGGER.info(
-            "Telegram application created"
-        )
-
-    except Exception:
-
-        LOGGER.exception(
-            "Failed to create Telegram application"
-        )
-
-        raise SystemExit(1)
-
-    # ---------------------------------------------
-    # Start Bot
-    # ---------------------------------------------
-
-    try:
-
-        LOGGER.info(
-            "ZEE BOTS is starting polling..."
-        )
 
         application.run_polling(
             drop_pending_updates=True
@@ -870,23 +896,24 @@ def main() -> None:
 
     except Conflict:
 
-        LOGGER.error(
-            "Another bot instance is already "
-            "polling this token."
+        logger.error(
+            "409 Conflict detected. "
+            "Make sure the bot is running "
+            "in only ONE place."
         )
 
         raise SystemExit(1)
 
     except KeyboardInterrupt:
 
-        LOGGER.info(
-            "Bot stopped manually"
+        logger.info(
+            "Bot stopped."
         )
 
     except Exception:
 
-        LOGGER.exception(
-            "Bot stopped unexpectedly"
+        logger.exception(
+            "Bot stopped unexpectedly."
         )
 
         raise SystemExit(1)
