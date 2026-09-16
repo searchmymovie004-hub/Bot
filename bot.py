@@ -1,668 +1,658 @@
 import os
-import base64
-import threading
 import logging
+import threading
+import urllib.parse
 import requests
 
 from flask import Flask
+
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
 )
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
     filters,
 )
 
-# =========================================================
-# CONFIG
-# =========================================================
+# ============================================================
+# ZEE2AI CONFIG
+# ============================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN environment variable is missing.")
+BOT_NAME = "ZEE2AI"
 
-if not IMGBB_API_KEY:
-    raise RuntimeError("IMGBB_API_KEY environment variable is missing.")
+IMAGE_API = "https://image.pollinations.ai/prompt/"
 
+PORT = int(os.getenv("PORT", "10000"))
 
-# =========================================================
+# ============================================================
 # LOGGING
-# =========================================================
+# ============================================================
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ZEE2AI")
 
-
-# =========================================================
-# FLASK SERVER FOR RENDER
-# =========================================================
+# ============================================================
+# FLASK HTTP SERVER
+# ============================================================
 
 app = Flask(__name__)
 
 
 @app.route("/")
 def home():
-    return "ZEE BOTS Image Link Bot is running."
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ZEE2AI</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {
+                margin: 0;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #0b0b0f;
+                color: white;
+                font-family: Arial, sans-serif;
+                text-align: center;
+            }
+
+            .box {
+                padding: 35px;
+                border-radius: 24px;
+                background: #15151c;
+                box-shadow: 0 0 40px rgba(255,255,255,.08);
+            }
+
+            h1 {
+                margin: 0 0 10px;
+                font-size: 34px;
+            }
+
+            p {
+                color: #aaa;
+            }
+
+            .status {
+                margin-top: 20px;
+                padding: 12px 20px;
+                border-radius: 30px;
+                background: #20202a;
+                display: inline-block;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="box">
+            <h1>✦ ZEE2AI ✦</h1>
+            <p>AI Image Generator</p>
+            <div class="status">🟢 Bot Online</div>
+        </div>
+    </body>
+    </html>
+    """
 
 
 @app.route("/health")
 def health():
-    return "OK"
+    return {
+        "status": "online",
+        "bot": "ZEE2AI"
+    }
 
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-
+def run_http_server():
     app.run(
         host="0.0.0.0",
-        port=port,
+        port=PORT,
         debug=False,
-        use_reloader=False,
+        use_reloader=False
     )
 
 
-# =========================================================
-# TELEGRAM KEYBOARDS
-# =========================================================
+# ============================================================
+# MAIN MENU
+# ============================================================
 
-main_keyboard = ReplyKeyboardMarkup(
-    [
-        ["📤 Upload Image"],
-        ["❓ Help"],
-    ],
-    resize_keyboard=True,
-)
+def main_menu():
 
-upload_keyboard = InlineKeyboardMarkup(
-    [
+    keyboard = [
         [
             InlineKeyboardButton(
-                "🌐 Open Image",
-                url="https://example.com",
+                "🎨  CREATE IMAGE",
+                callback_data="generate"
             )
         ],
         [
             InlineKeyboardButton(
-                "📤 Upload Another",
-                callback_data="upload_another",
-            )
-        ],
-    ]
-)
-
-help_keyboard = InlineKeyboardMarkup(
-    [
-        [
+                "📐 IMAGE SIZE",
+                callback_data="size"
+            ),
             InlineKeyboardButton(
-                "⬅️ Back",
-                callback_data="back_home",
+                "ℹ️ HELP",
+                callback_data="help"
             )
         ]
     ]
-)
+
+    return InlineKeyboardMarkup(keyboard)
 
 
-# =========================================================
-# IMGBB UPLOAD
-# =========================================================
-
-def upload_to_imgbb(image_data):
-    """
-    Upload image bytes to ImgBB.
-
-    Returns:
-        (image_url, None) on success
-        (None, error_message) on failure
-    """
-
-    try:
-
-        # Convert image bytes to Base64
-        encoded_image = base64.b64encode(image_data).decode("utf-8")
-
-        logger.info(
-            "Uploading image to ImgBB | size=%s bytes",
-            len(image_data),
-        )
-
-        response = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={
-                "key": IMGBB_API_KEY,
-                "image": encoded_image,
-            },
-            timeout=60,
-        )
-
-        logger.info(
-            "ImgBB response status=%s",
-            response.status_code,
-        )
-
-        logger.info(
-            "ImgBB response body=%s",
-            response.text[:2000],
-        )
-
-        # HTTP error
-        if response.status_code != 200:
-
-            return (
-                None,
-                f"ImgBB HTTP {response.status_code}: "
-                f"{response.text[:500]}",
-            )
-
-        # Parse JSON
-        try:
-            result = response.json()
-
-        except Exception:
-
-            return (
-                None,
-                "ImgBB returned an invalid response."
-            )
-
-        # API success check
-        if not result.get("success"):
-
-            error = result.get("error")
-
-            if error:
-                return (
-                    None,
-                    f"ImgBB Error: {error}"
-                )
-
-            return (
-                None,
-                f"ImgBB upload failed: {result}"
-            )
-
-        data = result.get("data", {})
-
-        # =================================================
-        # Try all common ImgBB URL fields
-        # =================================================
-
-        image_url = data.get("url")
-
-        if not image_url:
-            image_url = data.get("display_url")
-
-        if not image_url:
-
-            image_object = data.get("image", {})
-
-            if isinstance(image_object, dict):
-                image_url = image_object.get("url")
-
-        # =================================================
-        # URL missing
-        # =================================================
-
-        if not image_url:
-
-            return (
-                None,
-                "Upload succeeded but ImgBB did not return "
-                "an image URL."
-            )
-
-        logger.info(
-            "ImgBB upload successful | url=%s",
-            image_url,
-        )
-
-        return image_url, None
-
-    except requests.exceptions.Timeout:
-
-        logger.exception("ImgBB timeout")
-
-        return (
-            None,
-            "ImgBB request timed out."
-        )
-
-    except requests.exceptions.ConnectionError:
-
-        logger.exception("ImgBB connection error")
-
-        return (
-            None,
-            "Could not connect to ImgBB."
-        )
-
-    except requests.exceptions.RequestException as e:
-
-        logger.exception("ImgBB request error")
-
-        return (
-            None,
-            f"ImgBB request error: {str(e)}"
-        )
-
-    except Exception as e:
-
-        logger.exception("Unexpected ImgBB error")
-
-        return (
-            None,
-            f"Unexpected error: {str(e)}"
-        )
-
-
-# =========================================================
-# START COMMAND
-# =========================================================
+# ============================================================
+# START
+# ============================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    text = """
-╭───「 🖼️ ZEE BOTS 」───╮
+    context.user_data["waiting_prompt"] = False
 
-🚀 IMAGE → DIRECT LINK
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       ✦ <b>Z E E 2 A I</b> ✦\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
 
-Convert your Telegram image into
-a direct HTTPS image link.
+        "🎨 <b>AI IMAGE STUDIO</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-✨ Fast Upload
-🔗 Direct Image URL
-📱 Mobile Friendly
-⚡ Simple & Free
-🕘 Telegram chat keeps your links
+        "Turn your imagination into images.\n"
+        "Describe your idea and let ZEE2AI\n"
+        "create it for you.\n\n"
 
-Just send an image to begin.
+        "✨ <b>FEATURES</b>\n"
+        "• AI image generation\n"
+        "• Multiple image formats\n"
+        "• Premium interface\n"
+        "• Simple & fast workflow\n\n"
 
-╰────────────────────╯
-"""
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <b>Tip:</b> Detailed prompts can\n"
+        "give you more specific results.\n\n"
+
+        "👇 <b>Select an option</b>"
+    )
 
     await update.message.reply_text(
         text,
-        reply_markup=main_keyboard,
+        parse_mode="HTML",
+        reply_markup=main_menu()
     )
 
 
-# =========================================================
-# HELP
-# =========================================================
+# ============================================================
+# GENERATE
+# ============================================================
 
-async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    text = """
-╭───「 ❓ HELP 」───╮
-
-📌 HOW TO USE
-
-1️⃣ Send an image to this bot.
-
-2️⃣ The bot uploads your image.
-
-3️⃣ You receive a direct HTTPS
-   image URL.
-
-4️⃣ Use the URL anywhere you need.
-
-━━━━━━━━━━━━━━━━━━
-
-🖼️ Supported:
-• Telegram Photos
-• Image Documents
-• JPG
-• JPEG
-• PNG
-• WEBP
-• GIF
-• Other supported image formats
-
-━━━━━━━━━━━━━━━━━━
-
-🔒 No separate history system.
-
-Your generated links remain available
-inside your Telegram chat history.
-
-╰──────────────────╯
-"""
-
-    await update.message.reply_text(
-        text,
-        reply_markup=help_keyboard,
-    )
-
-
-# =========================================================
-# BUTTON CALLBACK
-# =========================================================
-
-async def button_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def generate_button(update, context):
 
     query = update.callback_query
-
     await query.answer()
 
-    # Upload another
-    if query.data == "upload_another":
+    context.user_data["waiting_prompt"] = True
 
-        await query.message.reply_text(
-            "📤 Send your next image.",
-            reply_markup=main_keyboard,
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       🎨 <b>CREATE IMAGE</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "📝 Send a description of the image\n"
+        "you want to generate.\n\n"
+
+        "💡 <b>Example</b>\n"
+        "<code>A cinematic Kerala village during "
+        "monsoon, beautiful houses, dramatic sky, "
+        "realistic photography, ultra detailed, 4K</code>\n\n"
+
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✦ Send your prompt"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🔙 CANCEL",
+                callback_data="back"
+            )
+        ]
+    ]
+
+    await query.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ============================================================
+# SIZE
+# ============================================================
+
+async def size_button(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    current = context.user_data.get(
+        "size",
+        "1024x1024"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "⬜ 1:1",
+                callback_data="size_1024_1024"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🖼 16:9",
+                callback_data="size_1280_720"
+            ),
+            InlineKeyboardButton(
+                "📱 9:16",
+                callback_data="size_720_1280"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 BACK",
+                callback_data="back"
+            )
+        ]
+    ]
+
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       📐 <b>IMAGE SIZE</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        f"Current: <code>{current}</code>\n\n"
+
+        "Choose your preferred format."
+    )
+
+    await query.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ============================================================
+# SIZE SELECT
+# ============================================================
+
+async def size_select(update, context):
+
+    query = update.callback_query
+    await query.answer("Size selected ✓")
+
+    data = query.data
+
+    if data == "size_1024_1024":
+        width, height = 1024, 1024
+
+    elif data == "size_1280_720":
+        width, height = 1280, 720
+
+    elif data == "size_720_1280":
+        width, height = 720, 1280
+
+    else:
+        return
+
+    context.user_data["width"] = width
+    context.user_data["height"] = height
+    context.user_data["size"] = f"{width}x{height}"
+
+    await query.message.reply_text(
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       ✅ <b>SIZE UPDATED</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        f"📐 <code>{width} × {height}</code>\n\n"
+        "Your next image will use this format.",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
+
+
+# ============================================================
+# HELP
+# ============================================================
+
+async def help_button(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    text = (
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "          ℹ️ <b>HELP</b>\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "🎨 <b>CREATE IMAGE</b>\n"
+        "Tap the button and send your prompt.\n\n"
+
+        "📝 <b>GOOD PROMPT</b>\n"
+        "<code>Futuristic Kochi city at night, "
+        "neon lights, cinematic, realistic, "
+        "highly detailed</code>\n\n"
+
+        "📐 <b>AVAILABLE SIZES</b>\n"
+        "• 1:1 Square\n"
+        "• 16:9 Landscape\n"
+        "• 9:16 Portrait\n\n"
+
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✦ Powered by ZEE2AI"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🔙 BACK",
+                callback_data="back"
+            )
+        ]
+    ]
+
+    await query.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ============================================================
+# BACK
+# ============================================================
+
+async def back_button(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["waiting_prompt"] = False
+
+    await query.message.reply_text(
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       ✦ <b>ZEE2AI</b> ✦\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "🏠 <b>Main Menu</b>\n\n"
+        "Ready to create something?",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
+
+
+# ============================================================
+# IMAGE URL
+# ============================================================
+
+def create_image_url(prompt, width, height):
+
+    encoded = urllib.parse.quote(
+        prompt,
+        safe=""
+    )
+
+    return (
+        IMAGE_API
+        + encoded
+        + f"?width={width}"
+        + f"&height={height}"
+        + "&nologo=true"
+    )
+
+
+# ============================================================
+# GENERATE IMAGE
+# ============================================================
+
+async def handle_prompt(update, context):
+
+    if not update.message:
+        return
+
+    prompt = update.message.text.strip()
+
+    if not context.user_data.get(
+        "waiting_prompt",
+        False
+    ):
+        await update.message.reply_text(
+            "👋 Please select <b>CREATE IMAGE</b> first.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
         )
+        return
 
-    # Back
-    elif query.data == "back_home":
-
-        text = """
-╭───「 🖼️ ZEE BOTS 」───╮
-
-Ready to convert your image.
-
-📤 Send an image to get
-your direct image link.
-
-╰────────────────────╯
-"""
-
-        await query.message.edit_text(text)
-
-        await query.message.reply_text(
-            "Choose an option:",
-            reply_markup=main_keyboard,
+    if len(prompt) < 3:
+        await update.message.reply_text(
+            "⚠️ Please enter a more detailed prompt."
         )
+        return
 
+    if len(prompt) > 1000:
+        await update.message.reply_text(
+            "⚠️ Prompt is too long.\n"
+            "Please keep it below 1000 characters."
+        )
+        return
 
-# =========================================================
-# IMAGE HANDLER
-# =========================================================
+    context.user_data["waiting_prompt"] = False
 
-async def process_image(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+    width = context.user_data.get(
+        "width",
+        1024
+    )
+
+    height = context.user_data.get(
+        "height",
+        1024
+    )
+
+    loading = await update.message.reply_text(
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       ✦ <b>ZEE2AI</b> ✦\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "🎨 <b>Creating your image...</b>\n\n"
+
+        "▰▰▰▰▰▰▱▱▱▱ 60%\n\n"
+
+        "⏳ Please wait..."
+    ,
+        parse_mode="HTML"
+    )
 
     try:
 
-        user = update.effective_user
+        await update.message.chat.send_action(
+            action=ChatAction.UPLOAD_PHOTO
+        )
+
+        image_url = create_image_url(
+            prompt,
+            width,
+            height
+        )
 
         logger.info(
-            "Image received | user=%s",
-            user.id if user else "unknown",
+            "Generating image | user=%s",
+            update.effective_user.id
         )
 
-        # -------------------------------------------------
-        # PHOTO
-        # -------------------------------------------------
-
-        if update.message.photo:
-
-            # Highest resolution photo
-            photo = update.message.photo[-1]
-
-            telegram_file = await context.bot.get_file(
-                photo.file_id
-            )
-
-        # -------------------------------------------------
-        # IMAGE DOCUMENT
-        # -------------------------------------------------
-
-        elif update.message.document:
-
-            document = update.message.document
-
-            mime_type = document.mime_type or ""
-
-            # Accept image MIME types
-            if not mime_type.startswith("image/"):
-
-                await update.message.reply_text(
-                    "❌ Please send an image file only.",
-                    reply_markup=main_keyboard,
-                )
-
-                return
-
-            telegram_file = await context.bot.get_file(
-                document.file_id
-            )
-
-        else:
-
-            return
-
-        # -------------------------------------------------
-        # DOWNLOAD FROM TELEGRAM
-        # -------------------------------------------------
-
-        image_data = await telegram_file.download_as_bytearray()
-
-        image_data = bytes(image_data)
-
-        logger.info(
-            "Image downloaded | user=%s | size=%s",
-            user.id if user else "unknown",
-            len(image_data),
+        response = requests.get(
+            image_url,
+            timeout=120
         )
 
-        # -------------------------------------------------
-        # UPLOAD TO IMGBB
-        # -------------------------------------------------
-
-        status_message = await update.message.reply_text(
-            "⏳ Uploading your image...\n\n"
-            "Please wait a moment."
-        )
-
-        image_url, error = upload_to_imgbb(image_data)
-
-        # -------------------------------------------------
-        # FAILED
-        # -------------------------------------------------
-
-        if not image_url:
+        if response.status_code != 200:
 
             logger.error(
-                "UPLOAD FAILED | user=%s | error=%s",
-                user.id if user else "unknown",
-                error,
+                "Image API error: %s",
+                response.status_code
             )
 
-            await status_message.edit_text(
-                "╭───「 ❌ UPLOAD FAILED 」───╮\n"
-                "\n"
-                "Something went wrong while\n"
-                "processing your image.\n"
-                "\n"
-                "Please try again later.\n"
-                "\n"
-                "╰────────────────────────╯"
+            await loading.edit_text(
+                "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+                "       ❌ <b>FAILED</b>\n"
+                "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+                "The image service is currently\n"
+                "unavailable.\n\n"
+
+                "Please try again later.",
+                parse_mode="HTML",
+                reply_markup=main_menu()
             )
 
             return
 
-        # -------------------------------------------------
-        # SUCCESS
-        # -------------------------------------------------
+        await update.message.reply_photo(
+            photo=image_url,
+            caption=(
+                "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+                "        ✦ <b>ZEE2AI</b> ✦\n"
+                "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
 
-        logger.info(
-            "UPLOAD SUCCESS | user=%s | url=%s",
-            user.id if user else "unknown",
-            image_url,
+                "✨ <b>IMAGE GENERATED</b>\n\n"
+
+                f"📐 Size: <code>{width}×{height}</code>\n"
+                "🎨 AI Image Studio\n\n"
+
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "💎 Created with ZEE2AI"
+            ),
+            parse_mode="HTML"
         )
 
-        # Delete loading message
-        try:
-            await status_message.delete()
-        except Exception:
-            pass
-
-        # -------------------------------------------------
-        # SUCCESS MESSAGE
-        # -------------------------------------------------
-
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🌐 Open Image",
-                        url=image_url,
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📤 Upload Another",
-                        callback_data="upload_another",
-                    )
-                ],
-            ]
-        )
-
-        success_text = f"""
-╭───「 ✅ UPLOAD COMPLETE 」───╮
-
-🖼️ Your image is ready!
-
-🔗 DIRECT IMAGE LINK
-
-{image_url}
-
-━━━━━━━━━━━━━━━━━━
-
-⚡ Fast & Direct
-🔒 No separate history database
-💬 Link saved in your Telegram chat
-
-╰────────────────────────────╯
-"""
+        await loading.delete()
 
         await update.message.reply_text(
-            success_text,
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
+            "✨ <b>Create another image?</b>",
+            parse_mode="HTML",
+            reply_markup=main_menu()
         )
 
-    except Exception as e:
+    except requests.exceptions.Timeout:
+
+        await loading.edit_text(
+            "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+            "       ⏱️ <b>TIMEOUT</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+            "The image service took too long.\n\n"
+            "Please try again.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+
+    except Exception:
 
         logger.exception(
-            "IMAGE HANDLER ERROR"
+            "Image generation error"
         )
 
-        try:
+        await loading.edit_text(
+            "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+            "       ❌ <b>ERROR</b>\n"
+            "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
 
-            await update.message.reply_text(
-                "╭───「 ❌ ERROR 」───╮\n"
-                "\n"
-                "Unable to process this image.\n"
-                "\n"
-                "Please try another image.\n"
-                "\n"
-                "╰──────────────────╯",
-                reply_markup=main_keyboard,
-            )
-
-        except Exception:
-            pass
-
-
-# =========================================================
-# TEXT HANDLER
-# =========================================================
-
-async def text_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    text = (update.message.text or "").strip()
-
-    if text == "📤 Upload Image":
-
-        await update.message.reply_text(
-            """
-╭───「 📤 UPLOAD IMAGE 」───╮
-
-Send an image now.
-
-I will convert it into
-a direct HTTPS image link.
-
-╰──────────────────────────╯
-""",
-            reply_markup=main_keyboard,
-        )
-
-    elif text == "❓ Help":
-
-        await show_help(update, context)
-
-    else:
-
-        await update.message.reply_text(
-            """
-🖼️ Please send an image.
-
-I will convert it into
-a direct image URL.
-""",
-            reply_markup=main_keyboard,
+            "Something went wrong.\n\n"
+            "Please try again.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
         )
 
 
-# =========================================================
-# ERROR HANDLER
-# =========================================================
+# ============================================================
+# TEXT
+# ============================================================
 
-async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def text_handler(update, context):
 
-    logger.exception(
-        "Telegram error:",
-        exc_info=context.error,
+    if context.user_data.get(
+        "waiting_prompt",
+        False
+    ):
+        await handle_prompt(
+            update,
+            context
+        )
+        return
+
+    await update.message.reply_text(
+        "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+        "       ✦ <b>ZEE2AI</b> ✦\n"
+        "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "Use the button below to create\n"
+        "your AI image.",
+        parse_mode="HTML",
+        reply_markup=main_menu()
     )
 
 
-# =========================================================
+# ============================================================
+# ERROR
+# ============================================================
+
+async def error_handler(update, context):
+
+    logger.error(
+        "Unhandled error:",
+        exc_info=context.error
+    )
+
+
+# ============================================================
 # MAIN
-# =========================================================
+# ============================================================
 
 def main():
 
-    logger.info("===================================")
-    logger.info("ZEE BOTS IMAGE LINK BOT")
-    logger.info("===================================")
-    logger.info("Storage: ImgBB")
-    logger.info("Firebase: DISABLED")
-    logger.info("Database History: DISABLED")
-    logger.info("Telegram Chat History: ENABLED")
-    logger.info("===================================")
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN environment variable is missing."
+        )
 
-    # Start Flask
-    flask_thread = threading.Thread(
-        target=run_flask,
-        daemon=True,
+    logger.info("=" * 50)
+    logger.info("ZEE2AI")
+    logger.info("AI IMAGE GENERATOR")
+    logger.info("=" * 50)
+
+    # HTTP server thread
+    http_thread = threading.Thread(
+        target=run_http_server,
+        daemon=True
     )
 
-    flask_thread.start()
+    http_thread.start()
+
+    logger.info(
+        "HTTP server started on port %s",
+        PORT
+    )
 
     # Telegram application
     application = (
@@ -673,27 +663,52 @@ def main():
 
     # Commands
     application.add_handler(
-        CommandHandler("start", start)
-    )
-
-    # Callback buttons
-    application.add_handler(
-        CallbackQueryHandler(button_callback)
-    )
-
-    # Photos
-    application.add_handler(
-        MessageHandler(
-            filters.PHOTO,
-            process_image,
+        CommandHandler(
+            "start",
+            start
         )
     )
 
-    # Image documents
     application.add_handler(
-        MessageHandler(
-            filters.Document.IMAGE,
-            process_image,
+        CommandHandler(
+            "help",
+            help_button
+        )
+    )
+
+    # Buttons
+    application.add_handler(
+        CallbackQueryHandler(
+            generate_button,
+            pattern="^generate$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            size_button,
+            pattern="^size$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            help_button,
+            pattern="^help$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            back_button,
+            pattern="^back$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            size_select,
+            pattern="^size_"
         )
     )
 
@@ -701,26 +716,20 @@ def main():
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            text_handler,
+            text_handler
         )
     )
 
-    # Errors
     application.add_error_handler(
         error_handler
     )
 
-    logger.info("Application started")
+    logger.info("Telegram bot starting...")
 
-    # Polling
     application.run_polling(
         drop_pending_updates=True
     )
 
-
-# =========================================================
-# RUN
-# =========================================================
 
 if __name__ == "__main__":
     main()
