@@ -1,41 +1,37 @@
-from __future__ import annotations
-
-import asyncio
-import base64
-import html
-import logging
 import os
-from io import BytesIO
-from threading import Thread
-
+import base64
+import threading
+import logging
 import requests
-from flask import Flask
 
+from flask import Flask
 from telegram import (
+    Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    Update,
+    ReplyKeyboardMarkup,
 )
-from telegram.constants import ParseMode
-from telegram.error import TelegramError
 from telegram.ext import (
     Application,
-    CallbackQueryHandler,
     CommandHandler,
-    ContextTypes,
     MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
     filters,
 )
 
-
 # =========================================================
-# CONFIGURATION
+# CONFIG
 # =========================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
 
-PORT = int(os.getenv("PORT", "10000"))
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable is missing.")
+
+if not IMGBB_API_KEY:
+    raise RuntimeError("IMGBB_API_KEY environment variable is missing.")
 
 
 # =========================================================
@@ -51,47 +47,28 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# STARTUP CHECK
-# =========================================================
-
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN environment variable is missing.")
-
-if not IMGBB_API_KEY:
-    raise RuntimeError("IMGBB_API_KEY environment variable is missing.")
-
-
-logger.info("====================================")
-logger.info("ZEE BOTS - IMAGE LINK BOT")
-logger.info("====================================")
-logger.info("Storage: ImgBB")
-logger.info("Firebase: DISABLED")
-logger.info("Database History: DISABLED")
-logger.info("Telegram Chat History: ENABLED")
-logger.info("====================================")
-
-
-# =========================================================
 # FLASK SERVER FOR RENDER
 # =========================================================
 
-flask_app = Flask(__name__)
+app = Flask(__name__)
 
 
-@flask_app.route("/")
+@app.route("/")
 def home():
-    return "ZEE BOTS Image Link Bot is running!", 200
+    return "ZEE BOTS Image Link Bot is running."
 
 
-@flask_app.route("/health")
+@app.route("/health")
 def health():
-    return "OK", 200
+    return "OK"
 
 
 def run_flask():
-    flask_app.run(
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(
         host="0.0.0.0",
-        port=PORT,
+        port=port,
         debug=False,
         use_reloader=False,
     )
@@ -101,156 +78,68 @@ def run_flask():
 # TELEGRAM KEYBOARDS
 # =========================================================
 
-def main_keyboard():
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "🖼️ Upload Image",
-                callback_data="upload",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "ℹ️ Help",
-                callback_data="help",
-            )
-        ],
-    ]
+main_keyboard = ReplyKeyboardMarkup(
+    [
+        ["📤 Upload Image"],
+        ["❓ Help"],
+    ],
+    resize_keyboard=True,
+)
 
-    return InlineKeyboardMarkup(keyboard)
-
-
-def result_keyboard(image_url: str):
-    keyboard = [
+upload_keyboard = InlineKeyboardMarkup(
+    [
         [
             InlineKeyboardButton(
                 "🌐 Open Image",
-                url=image_url,
+                url="https://example.com",
             )
         ],
         [
             InlineKeyboardButton(
-                "🖼️ Upload Another",
-                callback_data="upload",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "ℹ️ Help",
-                callback_data="help",
+                "📤 Upload Another",
+                callback_data="upload_another",
             )
         ],
     ]
+)
 
-    return InlineKeyboardMarkup(keyboard)
-
-
-def help_keyboard():
-    keyboard = [
+help_keyboard = InlineKeyboardMarkup(
+    [
         [
             InlineKeyboardButton(
                 "⬅️ Back",
-                callback_data="back",
+                callback_data="back_home",
             )
-        ],
-        [
-            InlineKeyboardButton(
-                "🖼️ Upload Image",
-                callback_data="upload",
-            )
-        ],
+        ]
     ]
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-# =========================================================
-# START MESSAGE
-# =========================================================
-
-START_TEXT = """
-<b>╭───「 ZEE BOTS 」───╮</b>
-
-<b>🖼️ IMAGE → DIRECT LINK</b>
-
-Turn your image into a
-clean direct image URL instantly.
-
-<b>✨ Features</b>
-• Fast image upload
-• Direct HTTPS image link
-• Open image button
-• Easy copy & share
-• No account required
-• No database history
-
-<b>📌 How to use</b>
-Simply send an image here.
-
-<b>⚡ Powered by ZEE BOTS</b>
-<b>╰────────────────────╯</b>
-"""
-
-
-# =========================================================
-# HELP MESSAGE
-# =========================================================
-
-HELP_TEXT = """
-<b>╭───「 ℹ️ HELP 」───╮</b>
-
-<b>How to convert an image?</b>
-
-1️⃣ Send any image to this bot.
-2️⃣ Wait while it processes.
-3️⃣ You will receive a direct HTTPS image link.
-4️⃣ Use <b>Open Image</b> or copy the link.
-
-<b>📂 Supported</b>
-• Telegram photos
-• Image documents
-• JPG / JPEG
-• PNG
-• WEBP
-• GIF
-• Other image formats supported by Telegram
-
-<b>🔐 Privacy</b>
-This bot does not use Firebase
-or a separate database for history.
-
-Your generated links remain
-available in your Telegram chat history.
-
-<b>👨‍💻 Created by @zee_bot_creator_bot</b>
-
-<b>╰────────────────────╯</b>
-"""
+)
 
 
 # =========================================================
 # IMGBB UPLOAD
 # =========================================================
 
-def upload_to_imgbb(image_data: bytes) -> str | None:
+def upload_to_imgbb(image_data):
     """
     Upload image bytes to ImgBB.
 
-    ImgBB accepts the image as Base64 through
-    the 'image' POST field.
+    Returns:
+        (image_url, None) on success
+        (None, error_message) on failure
     """
-
-    url = "https://api.imgbb.com/1/upload"
 
     try:
 
         # Convert image bytes to Base64
-        encoded_image = base64.b64encode(
-            image_data
-        ).decode("utf-8")
+        encoded_image = base64.b64encode(image_data).decode("utf-8")
+
+        logger.info(
+            "Uploading image to ImgBB | size=%s bytes",
+            len(image_data),
+        )
 
         response = requests.post(
-            url,
+            "https://api.imgbb.com/1/upload",
             data={
                 "key": IMGBB_API_KEY,
                 "image": encoded_image,
@@ -258,423 +147,439 @@ def upload_to_imgbb(image_data: bytes) -> str | None:
             timeout=60,
         )
 
-        # Log ImgBB response for debugging
         logger.info(
-            "ImgBB response | status=%s | body=%s",
+            "ImgBB response status=%s",
             response.status_code,
-            response.text[:1000],
         )
 
-        response.raise_for_status()
+        logger.info(
+            "ImgBB response body=%s",
+            response.text[:2000],
+        )
 
-        data = response.json()
+        # HTTP error
+        if response.status_code != 200:
 
-        if not data.get("success"):
-            logger.error(
-                "ImgBB upload unsuccessful | response=%s",
-                data,
+            return (
+                None,
+                f"ImgBB HTTP {response.status_code}: "
+                f"{response.text[:500]}",
             )
-            return None
 
-        image_info = data.get("data", {})
+        # Parse JSON
+        try:
+            result = response.json()
 
-        # Try direct URL
-        direct_url = image_info.get("url")
+        except Exception:
 
-        if not direct_url:
-            direct_url = image_info.get("display_url")
+            return (
+                None,
+                "ImgBB returned an invalid response."
+            )
 
-        if not direct_url:
-            image_object = image_info.get("image", {})
+        # API success check
+        if not result.get("success"):
+
+            error = result.get("error")
+
+            if error:
+                return (
+                    None,
+                    f"ImgBB Error: {error}"
+                )
+
+            return (
+                None,
+                f"ImgBB upload failed: {result}"
+            )
+
+        data = result.get("data", {})
+
+        # =================================================
+        # Try all common ImgBB URL fields
+        # =================================================
+
+        image_url = data.get("url")
+
+        if not image_url:
+            image_url = data.get("display_url")
+
+        if not image_url:
+
+            image_object = data.get("image", {})
 
             if isinstance(image_object, dict):
-                direct_url = image_object.get("url")
+                image_url = image_object.get("url")
 
-        if not direct_url:
-            logger.error(
-                "ImgBB upload succeeded but no URL found."
+        # =================================================
+        # URL missing
+        # =================================================
+
+        if not image_url:
+
+            return (
+                None,
+                "Upload succeeded but ImgBB did not return "
+                "an image URL."
             )
-            return None
 
         logger.info(
             "ImgBB upload successful | url=%s",
-            direct_url,
+            image_url,
         )
 
-        return direct_url
+        return image_url, None
 
-    except requests.RequestException as error:
-        logger.exception(
-            "ImgBB request failed: %s",
-            error,
-        )
-        return None
+    except requests.exceptions.Timeout:
 
-    except Exception as error:
-        logger.exception(
-            "Unexpected ImgBB error: %s",
-            error,
+        logger.exception("ImgBB timeout")
+
+        return (
+            None,
+            "ImgBB request timed out."
         )
-        return None
+
+    except requests.exceptions.ConnectionError:
+
+        logger.exception("ImgBB connection error")
+
+        return (
+            None,
+            "Could not connect to ImgBB."
+        )
+
+    except requests.exceptions.RequestException as e:
+
+        logger.exception("ImgBB request error")
+
+        return (
+            None,
+            f"ImgBB request error: {str(e)}"
+        )
+
+    except Exception as e:
+
+        logger.exception("Unexpected ImgBB error")
+
+        return (
+            None,
+            f"Unexpected error: {str(e)}"
+        )
 
 
 # =========================================================
-# /START
+# START COMMAND
 # =========================================================
 
-async def start_command(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not update.message:
-        return
+    text = """
+╭───「 🖼️ ZEE BOTS 」───╮
+
+🚀 IMAGE → DIRECT LINK
+
+Convert your Telegram image into
+a direct HTTPS image link.
+
+✨ Fast Upload
+🔗 Direct Image URL
+📱 Mobile Friendly
+⚡ Simple & Free
+🕘 Telegram chat keeps your links
+
+Just send an image to begin.
+
+╰────────────────────╯
+"""
 
     await update.message.reply_text(
-        START_TEXT,
-        parse_mode=ParseMode.HTML,
-        reply_markup=main_keyboard(),
-        disable_web_page_preview=True,
+        text,
+        reply_markup=main_keyboard,
     )
 
 
 # =========================================================
-# CALLBACK BUTTONS
+# HELP
 # =========================================================
 
-async def callback_handler(
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text = """
+╭───「 ❓ HELP 」───╮
+
+📌 HOW TO USE
+
+1️⃣ Send an image to this bot.
+
+2️⃣ The bot uploads your image.
+
+3️⃣ You receive a direct HTTPS
+   image URL.
+
+4️⃣ Use the URL anywhere you need.
+
+━━━━━━━━━━━━━━━━━━
+
+🖼️ Supported:
+• Telegram Photos
+• Image Documents
+• JPG
+• JPEG
+• PNG
+• WEBP
+• GIF
+• Other supported image formats
+
+━━━━━━━━━━━━━━━━━━
+
+🔒 No separate history system.
+
+Your generated links remain available
+inside your Telegram chat history.
+
+╰──────────────────╯
+"""
+
+    await update.message.reply_text(
+        text,
+        reply_markup=help_keyboard,
+    )
+
+
+# =========================================================
+# BUTTON CALLBACK
+# =========================================================
+
+async def button_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
 
-    if not query:
-        return
-
     await query.answer()
 
-    try:
+    # Upload another
+    if query.data == "upload_another":
 
-        # ---------------------------------------------
-        # UPLOAD
-        # ---------------------------------------------
+        await query.message.reply_text(
+            "📤 Send your next image.",
+            reply_markup=main_keyboard,
+        )
 
-        if query.data == "upload":
+    # Back
+    elif query.data == "back_home":
 
-            upload_text = """
-<b>🖼️ SEND YOUR IMAGE</b>
+        text = """
+╭───「 🖼️ ZEE BOTS 」───╮
 
-Please send an image here.
+Ready to convert your image.
 
-I will convert it into a
-<b>direct HTTPS image link</b>.
+📤 Send an image to get
+your direct image link.
 
-⚡ Fast • Simple • Direct
+╰────────────────────╯
 """
 
-            await query.edit_message_text(
-                upload_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=help_keyboard(),
-            )
+        await query.message.edit_text(text)
 
-        # ---------------------------------------------
-        # HELP
-        # ---------------------------------------------
-
-        elif query.data == "help":
-
-            await query.edit_message_text(
-                HELP_TEXT,
-                parse_mode=ParseMode.HTML,
-                reply_markup=help_keyboard(),
-                disable_web_page_preview=True,
-            )
-
-        # ---------------------------------------------
-        # BACK
-        # ---------------------------------------------
-
-        elif query.data == "back":
-
-            await query.edit_message_text(
-                START_TEXT,
-                parse_mode=ParseMode.HTML,
-                reply_markup=main_keyboard(),
-                disable_web_page_preview=True,
-            )
-
-    except TelegramError as error:
-
-        logger.exception(
-            "Telegram callback error: %s",
-            error,
+        await query.message.reply_text(
+            "Choose an option:",
+            reply_markup=main_keyboard,
         )
 
 
 # =========================================================
-# IMAGE PROCESSING
+# IMAGE HANDLER
 # =========================================================
 
 async def process_image(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    telegram_file_id: str,
 ):
-
-    if not update.message:
-        return
-
-    message = update.message
-
-    user_id = (
-        message.from_user.id
-        if message.from_user
-        else "unknown"
-    )
-
-    processing_message = await message.reply_text(
-        """
-<b>⏳ PROCESSING IMAGE...</b>
-
-Downloading your image and
-creating a direct link.
-
-Please wait...
-""",
-        parse_mode=ParseMode.HTML,
-    )
 
     try:
 
-        # ---------------------------------------------
+        user = update.effective_user
+
+        logger.info(
+            "Image received | user=%s",
+            user.id if user else "unknown",
+        )
+
+        # -------------------------------------------------
+        # PHOTO
+        # -------------------------------------------------
+
+        if update.message.photo:
+
+            # Highest resolution photo
+            photo = update.message.photo[-1]
+
+            telegram_file = await context.bot.get_file(
+                photo.file_id
+            )
+
+        # -------------------------------------------------
+        # IMAGE DOCUMENT
+        # -------------------------------------------------
+
+        elif update.message.document:
+
+            document = update.message.document
+
+            mime_type = document.mime_type or ""
+
+            # Accept image MIME types
+            if not mime_type.startswith("image/"):
+
+                await update.message.reply_text(
+                    "❌ Please send an image file only.",
+                    reply_markup=main_keyboard,
+                )
+
+                return
+
+            telegram_file = await context.bot.get_file(
+                document.file_id
+            )
+
+        else:
+
+            return
+
+        # -------------------------------------------------
         # DOWNLOAD FROM TELEGRAM
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        telegram_file = await context.bot.get_file(
-            telegram_file_id
-        )
+        image_data = await telegram_file.download_as_bytearray()
 
-        buffer = BytesIO()
-
-        await telegram_file.download_to_memory(
-            buffer
-        )
-
-        image_bytes = buffer.getvalue()
+        image_data = bytes(image_data)
 
         logger.info(
             "Image downloaded | user=%s | size=%s",
-            user_id,
-            len(image_bytes),
+            user.id if user else "unknown",
+            len(image_data),
         )
 
-        if not image_bytes:
-
-            await processing_message.edit_text(
-                """
-<b>❌ UPLOAD FAILED</b>
-
-The image could not be downloaded.
-
-Please try sending the image again.
-""",
-                parse_mode=ParseMode.HTML,
-            )
-
-            return
-
-        # ---------------------------------------------
+        # -------------------------------------------------
         # UPLOAD TO IMGBB
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        direct_url = await asyncio.to_thread(
-            upload_to_imgbb,
-            image_bytes,
+        status_message = await update.message.reply_text(
+            "⏳ Uploading your image...\n\n"
+            "Please wait a moment."
         )
 
-        # ---------------------------------------------
+        image_url, error = upload_to_imgbb(image_data)
+
+        # -------------------------------------------------
         # FAILED
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        if not direct_url:
+        if not image_url:
 
-            await processing_message.edit_text(
-                """
-<b>╭───「 ❌ UPLOAD FAILED 」───╮</b>
+            logger.error(
+                "UPLOAD FAILED | user=%s | error=%s",
+                user.id if user else "unknown",
+                error,
+            )
 
-Something went wrong while
-processing your image.
-
-Please try again later.
-
-<b>╰────────────────────────╯</b>
-""",
-                parse_mode=ParseMode.HTML,
-                reply_markup=main_keyboard(),
+            await status_message.edit_text(
+                "╭───「 ❌ UPLOAD FAILED 」───╮\n"
+                "\n"
+                "Something went wrong while\n"
+                "processing your image.\n"
+                "\n"
+                "Please try again later.\n"
+                "\n"
+                "╰────────────────────────╯"
             )
 
             return
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # SUCCESS
-        # ---------------------------------------------
+        # -------------------------------------------------
 
-        safe_url = html.escape(
-            direct_url,
-            quote=False,
+        logger.info(
+            "UPLOAD SUCCESS | user=%s | url=%s",
+            user.id if user else "unknown",
+            image_url,
         )
 
-        result_text = f"""
-<b>╭───「 ✅ UPLOAD COMPLETE 」───╮</b>
+        # Delete loading message
+        try:
+            await status_message.delete()
+        except Exception:
+            pass
 
-<b>🖼️ Image uploaded successfully!</b>
+        # -------------------------------------------------
+        # SUCCESS MESSAGE
+        # -------------------------------------------------
 
-<b>🔗 Direct Image Link:</b>
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🌐 Open Image",
+                        url=image_url,
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "📤 Upload Another",
+                        callback_data="upload_another",
+                    )
+                ],
+            ]
+        )
 
-<code>{safe_url}</code>
+        success_text = f"""
+╭───「 ✅ UPLOAD COMPLETE 」───╮
 
-<b>💡 Tap the button below to open it.</b>
+🖼️ Your image is ready!
 
-<b>⚡ Powered by ZEE BOTS</b>
+🔗 DIRECT IMAGE LINK
 
-<b>╰────────────────────────────╯</b>
+{image_url}
+
+━━━━━━━━━━━━━━━━━━
+
+⚡ Fast & Direct
+🔒 No separate history database
+💬 Link saved in your Telegram chat
+
+╰────────────────────────────╯
 """
 
-        await processing_message.edit_text(
-            result_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=result_keyboard(
-                direct_url
-            ),
+        await update.message.reply_text(
+            success_text,
+            reply_markup=keyboard,
             disable_web_page_preview=True,
         )
 
-        logger.info(
-            "Image processed successfully | user=%s",
-            user_id,
-        )
-
-    except TelegramError as error:
+    except Exception as e:
 
         logger.exception(
-            "Telegram file error | user=%s | error=%s",
-            user_id,
-            error,
+            "IMAGE HANDLER ERROR"
         )
 
         try:
 
-            await processing_message.edit_text(
-                """
-<b>❌ TELEGRAM ERROR</b>
-
-Could not download the image
-from Telegram.
-
-Please try again.
-""",
-                parse_mode=ParseMode.HTML,
-                reply_markup=main_keyboard(),
+            await update.message.reply_text(
+                "╭───「 ❌ ERROR 」───╮\n"
+                "\n"
+                "Unable to process this image.\n"
+                "\n"
+                "Please try another image.\n"
+                "\n"
+                "╰──────────────────╯",
+                reply_markup=main_keyboard,
             )
 
         except Exception:
             pass
-
-    except Exception as error:
-
-        logger.exception(
-            "Image processing error | user=%s | error=%s",
-            user_id,
-            error,
-        )
-
-        try:
-
-            await processing_message.edit_text(
-                """
-<b>❌ SOMETHING WENT WRONG</b>
-
-The image could not be processed.
-
-Please try again.
-""",
-                parse_mode=ParseMode.HTML,
-                reply_markup=main_keyboard(),
-            )
-
-        except Exception:
-            pass
-
-
-# =========================================================
-# PHOTO HANDLER
-# =========================================================
-
-async def photo_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if not update.message:
-        return
-
-    if not update.message.photo:
-        return
-
-    # Get highest-resolution Telegram photo
-    photo = update.message.photo[-1]
-
-    await process_image(
-        update,
-        context,
-        photo.file_id,
-    )
-
-
-# =========================================================
-# IMAGE DOCUMENT HANDLER
-# =========================================================
-
-async def document_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if not update.message:
-        return
-
-    document = update.message.document
-
-    if not document:
-        return
-
-    # Make sure it is an image
-    mime_type = document.mime_type or ""
-
-    if not mime_type.startswith("image/"):
-
-        await update.message.reply_text(
-            """
-<b>⚠️ IMAGE ONLY</b>
-
-Please send an image file.
-
-Supported examples:
-JPG • JPEG • PNG • WEBP • GIF
-""",
-            parse_mode=ParseMode.HTML,
-            reply_markup=main_keyboard(),
-        )
-
-        return
-
-    await process_image(
-        update,
-        context,
-        document.file_id,
-    )
 
 
 # =========================================================
@@ -686,24 +591,39 @@ async def text_handler(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    if not update.message:
-        return
+    text = (update.message.text or "").strip()
 
-    await update.message.reply_text(
-        """
-<b>🖼️ IMAGE LINK BOT</b>
+    if text == "📤 Upload Image":
 
-Please send an image to convert it
-into a direct image URL.
+        await update.message.reply_text(
+            """
+╭───「 📤 UPLOAD IMAGE 」───╮
 
-<b>Example:</b>
+Send an image now.
 
-Send → 🖼️ Image
-Receive → 🔗 Direct HTTPS Link
+I will convert it into
+a direct HTTPS image link.
+
+╰──────────────────────────╯
 """,
-        parse_mode=ParseMode.HTML,
-        reply_markup=main_keyboard(),
-    )
+            reply_markup=main_keyboard,
+        )
+
+    elif text == "❓ Help":
+
+        await show_help(update, context)
+
+    else:
+
+        await update.message.reply_text(
+            """
+🖼️ Please send an image.
+
+I will convert it into
+a direct image URL.
+""",
+            reply_markup=main_keyboard,
+        )
 
 
 # =========================================================
@@ -716,7 +636,7 @@ async def error_handler(
 ):
 
     logger.exception(
-        "Unhandled Telegram error:",
+        "Telegram error:",
         exc_info=context.error,
     )
 
@@ -727,68 +647,57 @@ async def error_handler(
 
 def main():
 
-    # Start Render health server
-    flask_thread = Thread(
+    logger.info("===================================")
+    logger.info("ZEE BOTS IMAGE LINK BOT")
+    logger.info("===================================")
+    logger.info("Storage: ImgBB")
+    logger.info("Firebase: DISABLED")
+    logger.info("Database History: DISABLED")
+    logger.info("Telegram Chat History: ENABLED")
+    logger.info("===================================")
+
+    # Start Flask
+    flask_thread = threading.Thread(
         target=run_flask,
         daemon=True,
     )
 
     flask_thread.start()
 
-    # Create Telegram application
+    # Telegram application
     application = (
         Application.builder()
         .token(BOT_TOKEN)
         .build()
     )
 
-    # ---------------------------------------------
-    # COMMANDS
-    # ---------------------------------------------
-
+    # Commands
     application.add_handler(
-        CommandHandler(
-            "start",
-            start_command,
-        )
+        CommandHandler("start", start)
     )
 
-    # ---------------------------------------------
-    # CALLBACK BUTTONS
-    # ---------------------------------------------
-
+    # Callback buttons
     application.add_handler(
-        CallbackQueryHandler(
-            callback_handler
-        )
+        CallbackQueryHandler(button_callback)
     )
 
-    # ---------------------------------------------
-    # TELEGRAM PHOTO
-    # ---------------------------------------------
-
+    # Photos
     application.add_handler(
         MessageHandler(
             filters.PHOTO,
-            photo_handler,
+            process_image,
         )
     )
 
-    # ---------------------------------------------
-    # IMAGE DOCUMENT
-    # ---------------------------------------------
-
+    # Image documents
     application.add_handler(
         MessageHandler(
             filters.Document.IMAGE,
-            document_handler,
+            process_image,
         )
     )
 
-    # ---------------------------------------------
-    # TEXT
-    # ---------------------------------------------
-
+    # Text
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -796,24 +705,21 @@ def main():
         )
     )
 
-    # ---------------------------------------------
-    # ERRORS
-    # ---------------------------------------------
-
+    # Errors
     application.add_error_handler(
         error_handler
     )
 
-    logger.info("Starting Telegram bot...")
+    logger.info("Application started")
 
-    # Poll Telegram
+    # Polling
     application.run_polling(
         drop_pending_updates=True
     )
 
 
 # =========================================================
-# ENTRY POINT
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
