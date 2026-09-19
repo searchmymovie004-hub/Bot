@@ -1,18 +1,20 @@
 import os
 import re
 import logging
+import asyncio
 from flask import Flask
 from threading import Thread
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ChatJoinRequest
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, ChatJoinRequestHandler, filters
 
 # ലോഗിംഗ് സെറ്റപ്പ് ചെയ്യുക
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # കോൺഫിഗറേഷൻ വിവരങ്ങൾ
-TOKEN = "8973220687:AAHhU1cbD1ysEa4fIcfF0QTYYpW1xf3m2vg"
+TOKEN = "8973220687:AAGW6lqpPfvDRjF0lhfz2ZRWlDHi9yBRdks"
 CHANNEL_ID = -1004332383599
+ADMIN_USER_ID = 7199304293
 MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
 # --- 1. HTTP Web Service (Render-ന് വേണ്ടി) ---
@@ -37,11 +39,10 @@ def clean_caption(caption: str) -> str:
         return "🎬 New Movie Added!"
     
     # യൂസർഷണുകൾ (@username), ലിങ്കുകൾ (http/https/t.me), വെബ്‌സൈറ്റ് പേരുകൾ നീക്കം ചെയ്യാൻ
-    cleaned = re.sub(r'@[^\s]+', '', caption)                    # യൂസർഷണുകൾ മാറ്റുന്നു
-    cleaned = re.sub(r'https?://\S+|www\.\S+', '', cleaned)        # URL-കൾ മാറ്റുന്നു
-    cleaned = re.sub(r't\.me/\S+', '', cleaned, flags=re.IGNORECASE) # Telegram ലിങ്കുകൾ മാറ്റുന്നു
+    cleaned = re.sub(r'@[^\s]+', '', caption)
+    cleaned = re.sub(r'https?://\S+|www\.\S+', '', cleaned)
+    cleaned = re.sub(r't\.me/\S+', '', cleaned, flags=re.IGNORECASE)
     
-    # അധികമുള്ള സ്പേസുകൾ ഒഴിവാക്കുക
     cleaned = '\n'.join([line.strip() for line in cleaned.splitlines() if line.strip()])
     
     if not cleaned:
@@ -49,7 +50,16 @@ def clean_caption(caption: str) -> str:
         
     return cleaned
 
-# --- 3. മെസ്സേജുകൾ ഹാൻഡിൽ ചെയ്യുന്ന ഭാഗം ---
+# --- 3. Auto Accept Join Requests for Private Channel ---
+async def auto_accept(update: ChatJoinRequest, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # പ്രൈവറ്റ് ചാനലിലേക്ക് ജോയിൻ ചെയ്യാൻ റിക്വസ്റ്റ് അയക്കുന്നവരെ ഓട്ടോമാറ്റിക്കായി അപ്പ്രൂവ് ചെയ്യുന്നു
+        await update.approve()
+        logger.info(f"Approved join request for user: {update.from_user.id}")
+    except Exception as e:
+        logger.error(f"Failed to approve join request: {e}")
+
+# --- 4. മെസ്സേജുകൾ ഹാൻഡിൽ ചെയ്യുന്ന ഭാഗം ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -58,61 +68,99 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = message.from_user
     chat = message.chat
 
-    # ബോട്ട് പ്രൈവറ്റ് ചാറ്റിലാണോ പ്രവർത്തിക്കുന്നത് എന്ന് നോക്കുക (ആരെങ്കിലും മൂവി ചോദിച്ചു വരുമ്പോൾ)
+    # ബോട്ട് പ്രൈവറ്റ് ചാറ്റിലാണോ പ്രവർത്തിക്കുന്നത് എന്ന് നോക്കുക
     if chat.type == "private":
-        # അഡ്മിൻ ആണ് ഫയലുകൾ അയക്കുന്നതെങ്കിൽ ചാനലിലേക്ക് പോസ്റ്റ് ചെയ്യാം
-        # (ഇവിടെ അഡ്മിൻ ഐഡി പരിശോധന ഒഴിവാക്കിയിരിക്കുന്നു, നിങ്ങൾക്ക് വേണമെങ്കിൽ അഡ്മിൻ ചെക്ക് വെക്കാം)
         
-        # ഫയലോ പോസ്റ്ററോ ഡോക്യുമെന്റോ ആണോ എന്ന് പരിശോധിക്കുന്നു
-        if message.document or message.video or message.photo:
-            # മൾട്ടി ഫയൽ അപ്‌ലോഡിനായി മീഡിയ ഗ്രൂപ്പ് (Album) പിന്തുണയ്ക്കുന്നു
-            caption = message.caption or message.text or ""
-            cleaned_cap = clean_caption(caption)
+        # ഫയൽ അപ്‌ലോഡ് ചെയ്യാൻ ശ്രമിക്കുന്നത് അഡ്മിൻ ആണോ എന്ന് പരിശോധിക്കുന്നു (ID: 7199304293)
+        if user.id == ADMIN_USER_ID:
+            if message.document or message.video or message.photo:
+                caption = message.caption or message.text or ""
+                cleaned_cap = clean_caption(caption)
 
-            try:
-                # ഫോട്ടോ (പോസ്റ്റർ) ആണെങ്കിൽ
-                if message.photo:
-                    photo_file_id = message.photo[-1].file_id
-                    await context.bot.send_photo(
-                        chat_id=CHANNEL_ID,
-                        photo=photo_file_id,
-                        caption=cleaned_cap
-                    )
-                # ഡോക്യുമെന്റ് അല്ലെങ്കിൽ വീഡിയോ ആണെങ്കിൽ
-                elif message.document:
-                    await context.bot.send_document(
-                        chat_id=CHANNEL_ID,
-                        document=message.document.file_id,
-                        caption=cleaned_cap
-                    )
-                elif message.video:
-                    await context.bot.send_video(
-                        chat_id=CHANNEL_ID,
-                        video=message.video.file_id,
-                        caption=cleaned_cap
-                    )
+                try:
+                    sent_msg = None
+                    if message.photo:
+                        sent_msg = await context.bot.send_photo(
+                            chat_id=CHANNEL_ID,
+                            photo=message.photo[-1].file_id,
+                            caption=cleaned_cap
+                        )
+                    elif message.document:
+                        sent_msg = await context.bot.send_document(
+                            chat_id=CHANNEL_ID,
+                            document=message.document.file_id,
+                            caption=cleaned_cap
+                        )
+                    elif message.video:
+                        sent_msg = await context.bot.send_video(
+                            chat_id=CHANNEL_ID,
+                            video=message.video.file_id,
+                            caption=cleaned_cap
+                        )
+                    
+                    # അഡ്മിന് കൺഫർമേഷൻ അയക്കുന്നു (ചാനലിലെ ഒറിജിനൽ ഫയൽ ഒരിക്കലും ഓട്ടോ ഡിലീറ്റ് ആകില്ല)
+                    await message.reply_text("✨ Success! Movie has been added to your private channel successfully.")
+                    
+                    # ബോട്ടിന്റെ ചാറ്റിൽ അഡ്മിൻ അയച്ച ഫയൽ കോപ്പി താൽക്കാലികമായി സ്റ്റോർ ചെയ്തു വെക്കാം (യൂസേഴ്സിന് നൽകാൻ)
+                    context.bot_data['last_movie'] = sent_msg
                 
-                await message.reply_text("✅ ഫയൽ/പോസ്റ്റർ വിജയകരമായി ചാനലിലേക്ക് ആഡ് ചെയ്തിരിക്കുന്നു!")
-            except Exception as e:
-                logger.error(f"Error sending to channel: {e}")
-                await message.reply_text("❌ ഫയൽ ചാനലിലേക്ക് അയക്കുന്നതിൽ ചെറിയ തടസ്സമുണ്ടായി. ബോട്ട് ചാനലിൽ അഡ്മിൻ ആണെന്ന് ഉറപ്പുവരുത്തുക.")
+                except Exception as e:
+                    logger.error(f"Error sending to channel: {e}")
+                    await message.reply_text("❌ Error: Failed to upload file to the channel. Please check if the bot is an admin in the private channel.")
+            else:
+                await message.reply_text("👋 Hello Admin! Send any movie file/poster here to upload it directly to your private channel.")
         
         else:
-            # സാധാരണ ടെക്സ്റ്റ് മെസ്സേജുകൾക്ക് (ആരെങ്കിലും മൂവി ചോദിച്ചു വന്നാൽ) മെയിൻ ചാനൽ ലിങ്ക് നൽകുക
+            # സാധാരണ യൂസേഴ്സ് മൂവി ചോദിച്ചു വരുമ്പോൾ
             keyboard = [[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await message.reply_text(
-                "👋 ഹലോ! നിങ്ങൾക്ക് മൂവികൾ ലഭിക്കാനും ജോയിൻ ചെയ്യാനും താഴെയുള്ള ഔദ്യോഗിക ചാനൽ സന്ദർശിക്കുക:",
-                reply_markup=reply_markup
-            )
+            # ബോട്ടിന്റെ പക്കൽ അവസാനമായി അഡ്മിൻ അപ്‌ലോഡ് ചെയ്ത മൂവി ഉണ്ടെങ്കിൽ അത് യൂസർക്ക് അയച്ചുകൊടുക്കാം
+            last_movie = context.bot_data.get('last_movie')
+            if last_movie:
+                try:
+                    # യൂസർക്ക് ഫയൽ അയക്കുന്നു
+                    forwarded_msg = await context.bot.copy_message(
+                        chat_id=chat.id,
+                        from_chat_id=CHANNEL_ID,
+                        message_id=last_movie.message_id
+                    )
+                    
+                    # കോപ്പിറൈറ്റ് പ്രശ്നങ്ങൾ ഒഴിവാക്കാൻ യൂസർക്ക് അയച്ച ഫയൽ 5 മിനിറ്റിനു ശേഷം ഓട്ടോ ഡിലീറ്റ് ചെയ്യും
+                    asyncio.create_task(delete_after_delay(context, chat.id, forwarded_msg.message_id, 300))
+                    
+                    await message.reply_text(
+                        "🎬 Here is your requested movie! Note: This file will auto-delete in 5 minutes due to copyright policies.\n\n"
+                        "Please join our main channel for more movies:",
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending movie to user: {e}")
+                    await message.reply_text(
+                        "👋 Welcome! Please join our main channel to access all movies:",
+                        reply_markup=reply_markup
+                    )
+            else:
+                await message.reply_text(
+                    "👋 Welcome! Please join our main channel to get updates and watch movies:",
+                    reply_markup=reply_markup
+                )
 
-# സ്റ്റാർട്ട് കമാൻഡ് ഹാൻഡ്ലർ
+# 5 മിനിറ്റിനു ശേഷം യൂസർക്ക് അയച്ച ഫയൽ മാത്രം ഡിലീറ്റ് ചെയ്യാൻ (ചാനലിലുള്ളത് സേഫ് ആയിരിക്കും)
+async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int):
+    await asyncio.sleep(delay)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception as e:
+        logger.error(f"Failed to auto-delete user message: {e}")
+
+# സ്റ്റാർട്ട് കമാൻഡ് ഹാൻഡ്ലർ (പ്രീമിയം ഇംഗ്ലീഷ് ലുക്ക്)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "സ്ഗതം! ഈ ബോട്ട് വഴി മൂവികൾ മാനേജ് ചെയ്യാം. കൂടുതൽ വിവരങ്ങൾക്ക് മെയിൻ ചാനൽ ജോയിൻ ചെയ്യുക:",
+        "👋 Welcome! This is your automated movie assistant bot.\n\n"
+        "To get movies and regular updates, please join our official main channel below:",
         reply_markup=reply_markup
     )
 
@@ -123,11 +171,12 @@ def main():
     # ടെലിഗ്രാം ബോട്ട് ആപ്ലിക്കേഷൻ ബിൽഡ് ചെയ്യുന്നു
     application = ApplicationBuilder().token(TOKEN).build()
 
+    # കമാൻഡുകളും ഹാൻഡ്ലറുകളും ആഡ് ചെയ്യുന്നു
     application.add_handler(CommandHandler("start", start_command))
-    # എല്ലാത്തരം മീഡിയയും ടെക്സ്റ്റുകളും ഹാൻഡിൽ ചെയ്യാൻ
+    application.add_handler(ChatJoinRequestHandler(auto_accept))  # ഓട്ടോ അക്സെപ്റ്റ് ജോയിൻ റിക്വസ്റ്റ്
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    print("Bot is starting and running...")
+    print("Bot is starting and running with all features...")
     application.run_polling()
 
 if __name__ == '__main__':
