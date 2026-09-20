@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
 API_ID = int(os.getenv("API_ID", 39140696))
 API_HASH = os.getenv("API_HASH", "64757b9724e7143c5cc554d7a776334b")
-BOT_TOKEN = "8973220687:AAFCb4-i7sHAGPvCGlgsZWN2iBeex-qGdgY"
+BOT_TOKEN = "8973220687:AAHIPnDWiITrgn7scOolBytJh8_Xqpvkhl0"
 
-CHANNEL_ID = -1004433067284               # ചാനൽ ഐഡി
-BACKUP_CHANNEL_ID = -1004433067284        # ബാക്ക്അപ്പ് ചാനൽ ഐഡി
+CHANNEL_ID = -1004433067284               # മെയിൻ പ്രൈവറ്റ് ചാനൽ ഐഡി
+BACKUP_CHANNEL_ID = -1004433067284        # ബാക്ക്അപ്പ് ചാനൽ ഐഡി (യൂസർമാർക്ക് ഫയൽ നൽകുന്നത് ഇവിടെ നിന്നാണ്)
 ADMIN_USER_ID = 7199304293
 MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
@@ -81,7 +81,10 @@ async def handle_admin_upload(client, message):
     cleaned_cap = clean_caption(caption)
     
     try:
+        # 1. മെയിൻ ചാനലിലേക്ക് അയക്കുന്നു
         sent_msg = await message.copy(chat_id=CHANNEL_ID, caption=cleaned_cap)
+        
+        # 2. ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു
         backup_msg = await client.copy_message(
             chat_id=BACKUP_CHANNEL_ID,
             from_chat_id=CHANNEL_ID,
