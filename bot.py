@@ -12,7 +12,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # കോൺഫിഗറേഷൻ വിവരങ്ങൾ
-TOKEN = "8973220687:AAFAqpxGUVmzxlwKk241goOZHMzyL-rc9ko"
+TOKEN = "8973220687:AAF2cQWtacCPmIW9rQA2WP8PVD-aajZJHTc"
 CHANNEL_ID = -1004332383599        # മെയിൻ പ്രൈവറ്റ് ചാനൽ ഐഡി
 BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി (യൂസർമാർക്ക് ഫയൽ അയക്കുന്നത് ഇവിടെ നിന്നാണ്)
 ADMIN_USER_ID = 7199304293
