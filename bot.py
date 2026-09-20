@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # കോൺഫിഗറേഷൻ വിവരങ്ങൾ
 TOKEN = "8973220687:AAFAqpxGUVmzxlwKk241goOZHMzyL-rc9ko"
 CHANNEL_ID = -1004332383599        # മെയിൻ പ്രൈവറ്റ് ചാനൽ ഐഡി
-BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി
+BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി (യൂസർമാർക്ക് ഫയൽ അയക്കുന്നത് ഇവിടെ നിന്നാണ്)
 ADMIN_USER_ID = 7199304293
 MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
@@ -61,7 +61,6 @@ def get_file_size(message):
     if size_bytes == 0:
         return "Unknown Size"
     
-    # MB അല്ലെങ്കിൽ GB ആക്കി മാറ്റുന്നു
     size_mb = size_bytes / (1024 * 1024)
     if size_mb >= 1024:
         return f"{size_mb / 1024:.2f} GB"
@@ -85,9 +84,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = message.from_user
     chat = message.chat
 
-    # ബോട്ട് പ്രൈവറ്റ് ചാറ്റിലാണോ പ്രവർത്തിക്കുന്നത് എന്ന് നോക്കുക
     if chat.type == "private":
-        
         # അഡ്മിൻ ആണ് ഫയൽ അയക്കുന്നതെങ്കിൽ (ID: 7199304293)
         if user.id == ADMIN_USER_ID:
             if message.document or message.video or message.photo:
@@ -96,7 +93,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 try:
                     sent_msg = None
-                    # 1. മെയിൻ ചാനലിലേക്ക് അയക്കുന്നു
+                    # 1. മെയിൻ പ്രൈവറ്റ് ചാനലിലേക്ക് അയക്കുന്നു
                     if message.photo:
                         sent_msg = await context.bot.send_photo(
                             chat_id=CHANNEL_ID,
@@ -116,15 +113,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             caption=cleaned_cap
                         )
                     
-                    # 2. ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു
+                    # 2. ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു (ഇവിടെ നിന്നാണ് പിന്നീട് യൂസർമാർക്ക് ഫയൽ നൽകുന്നത്)
                     if sent_msg:
-                        await context.bot.copy_message(
+                        backup_msg = await context.bot.copy_message(
                             chat_id=BACKUP_CHANNEL_ID,
                             from_chat_id=CHANNEL_ID,
                             message_id=sent_msg.message_id
                         )
                         
-                        # ഡാറ്റാബേസ് ലിസ്റ്റിലേക്ക് മൂവി സേവ് ചെയ്യുന്നു (സെർച്ചിംഗിനായി)
+                        # ഡാറ്റാബേസിൽ ഫയൽ സേവ് ചെയ്യുമ്പോൾ ബാക്ക്അപ്പ് ചാനലിലെ message_id ആണ് സ്റ്റോർ ചെയ്യുന്നത്
                         if 'movies_db' not in context.bot_data:
                             context.bot_data['movies_db'] = []
                         
@@ -134,14 +131,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         context.bot_data['movies_db'].append({
                             'name': movie_name,
                             'size': file_size,
-                            'message_id': sent_msg.message_id
+                            'message_id': backup_msg.message_id  # ബാക്ക്അപ്പ് ചാനൽ ഐഡി വഴിയുള്ള മെസ്സേജ് ഐഡി
                         })
                         
                     await message.reply_text("✨ Success! Movie uploaded to channels and added to search database.")
                 
                 except Exception as e:
                     logger.error(f"Error sending to channel: {e}")
-                    await message.reply_text("❌ Error: Failed to upload file. Check bot admin rights.")
+                    await message.reply_text("❌ Error: Failed to upload file. Check bot admin rights in both channels.")
             else:
                 await message.reply_text("👋 Hello Admin! Send movie files/posters here to upload.")
         
@@ -152,13 +149,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             movies_db = context.bot_data.get('movies_db', [])
-            # യൂസർ നൽകിയ പേരിന് മാച്ച് ആയ മൂവികൾ ഫിൽട്ടർ ചെയ്യുന്നു
             matched_movies = [m for m in movies_db if query_text.lower() in m['name'].lower()]
             
             keyboard = [[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]]
             
             if matched_movies:
-                # ആദ്യത്തെ പേജ് (5 എണ്ണം വരെ ഒരു പേജിൽ)
                 context.user_data['search_results'] = matched_movies
                 context.user_data['search_query'] = query_text
                 await send_movie_page(update, context, matched_movies, page=0)
@@ -169,7 +164,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup
                 )
 
-# --- പേജിനേഷനും (Pagination) ബട്ടണുകളും ഹാൻഡിൽ ചെയ്യാൻ ---
+# --- പേജിനേഷനും ബട്ടണുകളും ഹാൻഡിൽ ചെയ്യാൻ ---
 async def send_movie_page(update_or_query, context, movies, page=0):
     items_per_page = 5
     start_idx = page * items_per_page
@@ -178,12 +173,9 @@ async def send_movie_page(update_or_query, context, movies, page=0):
     
     keyboard = []
     for m in current_movies:
-        # ബട്ടൺ ഫോർമാറ്റ്: [ 📁 Movie Name (Size) ]
         btn_text = f"📥 {m['name']} ({m['size']})"
-        # കോൾബാക്ക് ഡാറ്റയിൽ മൂവിയുടെ മെസ്സേജ് ഐഡി സ്റ്റോർ ചെയ്യുന്നു
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"get_mov_{m['message_id']}")])
     
-    # നെക്സ്റ്റ് / ബാക്ക് ബട്ടണുകൾ ചേറുക്കുക
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data=f"page_{page-1}"))
@@ -203,7 +195,7 @@ async def send_movie_page(update_or_query, context, movies, page=0):
     elif hasattr(update_or_query, 'edit_message_text'):
         await update_or_query.edit_message_text(text, reply_markup=reply_markup)
 
-# --- ബട്ടൺ ക്ലിക്കുകൾ ഹാൻഡിൽ ചെയ്യുന്ന ഭാഗം ---
+# --- ബട്ടൺ ക്ലിക്കുകൾ ഹാൻഡിൽ ചെയ്യുന്ന ഭാഗം (ബാക്ക്അപ്പ് ചാനലിൽ നിന്ന് ഫയൽ കൊടുക്കുന്നു) ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -217,10 +209,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("get_mov_"):
         msg_id = int(data.split("_")[2])
         try:
-            # യൂസർക്ക് ചാനലിൽ നിന്നും ഫയൽ ഫോർവേഡ് ചെയ്തു നൽകുന്നു
+            # യൂസർക്ക് ഫയൽ ഫോർവേഡ് ചെയ്തു നൽകുന്നത് ബാക്ക്അപ്പ് ചാനലിൽ നിന്നാണ് (-1004433067284)
             forwarded = await context.bot.copy_message(
                 chat_id=query.message.chat_id,
-                from_chat_id=CHANNEL_ID,
+                from_chat_id=BACKUP_CHANNEL_ID,
                 message_id=msg_id
             )
             
@@ -229,7 +221,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.message.reply_text("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
         except Exception as e:
-            logger.error(f"Error sending file via button: {e}")
+            logger.error(f"Error sending file via button from backup channel: {e}")
             await query.message.reply_text("❌ Sorry, failed to fetch this movie file.")
 
 async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int):
@@ -258,7 +250,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
 
-    print("Bot is running with Advanced Movie Search & Buttons...")
+    print("Bot is running and pulling files from Backup Channel...")
     application.run_polling()
 
 if __name__ == '__main__':
