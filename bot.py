@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
 API_ID = 39140696  
 API_HASH = "64757b9724e7143c5cc554d7a776334b"  
-BOT_TOKEN = "8973220687:AAHWJAJr8q7yCRzRRa0iRWiL-GIUbrSqRr0"
+BOT_TOKEN = "8938039710:AAHCum2k0Nqrmp3iY5VeVdQjctD9gNCy-f0"
 SESSION_STRING = "BQJVPVgAC506aVEIB8oiezA2ZOuQc6IAkl9s_XW5nvCFSyNrnzSnR7aPgvgtM6uWYGL-GNqnqo-1hPU6aXwklftYWZVyYPmktJu2sQXgZYl_oPLcCeQFKYPEeHGCt_aGqv2vT_jW9wbW_QwOXaE3fwpq6wtE-CuCqQiNE9vtxI3CTra1PpNEXmUtaxV0M0vfv2fzX5_WP6oszXBp5e7IWdR7RJdCvy6VKY-2hOxRYDslFdgXNZEzfZNL-BsKhD1TGub8nNjyEBvVGmAvaCMlPjbyTuxv_nzjzLxxBbSSlSma7916CBiXSlB-bp1b5VWvnLsc67lk47CXHAYTePHup1aEiN772QAAAAGtHKplAA"
 
 # ചാനൽ ഐഡികൾ
@@ -79,6 +79,7 @@ def get_file_size(message):
 
 async def index_channel_files():
     try:
+        logger.info("Starting background indexing from backup channel...")
         await bot.get_chat(int(CHANNEL_ID))
         await bot.get_chat(int(BACKUP_CHANNEL_ID))
         
@@ -244,9 +245,9 @@ async def main():
     keep_alive()
     print("Starting Hydrogram Movie Bot...")
     async with bot:
-        print("Indexing old files from backup channel...")
-        await index_channel_files()
-        print("Bot is fully active and running!")
+        print("Bot is active and running! Starting background file indexing...")
+        # ഇൻഡെക്സിംഗ് ബാക്ക്ഗ്രൗണ്ടിൽ ഓടിക്കാൻ asyncio.create_task നൽകി
+        asyncio.create_task(index_channel_files())
         await asyncio.Future()
 
 if __name__ == "__main__":
