@@ -1,7 +1,7 @@
 import asyncio
 import sys
 
-# Python 3.14-ൽ ഇവന്റ് ലൂപ്പ് മിസ്സിംഗ് ആകാതിരിക്കാൻ ഇത് ആദ്യം തന്നെ സെറ്റ് ചെയ്യണം
+# Python 3.14-ൽ ഇവന്റ് ലൂപ്പ് മിസ്സിംഗ് ആകാതിരിക്കാൻ
 try:
     asyncio.get_event_loop()
 except RuntimeError:
@@ -33,7 +33,7 @@ MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
 MOVIES_DB = []
 
-# --- 1. HTTP Web Service (Render-ന് വേണ്ടി) ---
+# --- 1. HTTP Web Service ---
 app = Flask('')
 
 @app.route('/')
@@ -79,6 +79,10 @@ def get_file_size(message):
 
 async def index_channel_files():
     try:
+        # ചാനലുകൾ കാഷെ ചെയ്യാൻ ആദ്യം ഒന്ന് ഗെറ്റ് ചെയ്യുന്നു
+        await bot.get_chat(CHANNEL_ID)
+        await bot.get_chat(BACKUP_CHANNEL_ID)
+        
         async for message in bot.get_chat_history(BACKUP_CHANNEL_ID):
             if message.document or message.video or message.photo:
                 caption = message.caption or ""
