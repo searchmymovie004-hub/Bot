@@ -4,6 +4,14 @@ import re
 import logging
 from flask import Flask
 from threading import Thread
+
+# Python 3.14 ഇവെന്റ് ലൂപ്പ് പ്രശ്നം ഒഴിവാക്കാനുള്ള കോഡ്
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 from hydrogram import Client, filters
 from hydrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
