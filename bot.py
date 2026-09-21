@@ -1,7 +1,16 @@
+import asyncio
+import sys
+
+# Python 3.14-ൽ ഇവന്റ് ലൂപ്പ് മിസ്സിംഗ് ആകാതിരിക്കാൻ ഇത് ആദ്യം തന്നെ സെറ്റ് ചെയ്യണം
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 import os
 import re
 import logging
-import asyncio
 from flask import Flask
 from threading import Thread
 from pyrogram import Client, filters
@@ -20,7 +29,7 @@ SESSION_STRING = "BQJVPVgAwc3boJ7aTpurbBFc0Fr12QKMVkCkT1dQ6QBi25nJzCrS0Vvg1YxNPi
 CHANNEL_ID = -1004332383599        
 BACKUP_CHANNEL_ID = -1004433067284   
 ADMIN_USER_ID = 7199304293
-MAIN_CHANNEL_LINK = "https://t.me/mfottupdates"
+MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
 MOVIES_DB = []
 
