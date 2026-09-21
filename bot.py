@@ -14,43 +14,48 @@ from pyrogram.types import (
 )
 
 
-# =========================================================
+# ==========================================================
 #                    CONFIGURATION
-#             NO .ENV / NO ENVIRONMENT VARIABLES
-# =========================================================
+#                 NO .ENV REQUIRED
+# ==========================================================
 
 API_ID = 39140696
 API_HASH = "64757b9724e7143c5cc554d7a776334b"
-BOT_TOKEN = "8973220687:AAHpa64POFLGx4yVtjLQFBXrgfWoroCszqE"
 
-# Your authorized movie library channel
+# Bot account
+BOT_TOKEN = "8973220687:AAH55V8u7g-m8s31MWLEymWmU8neU9QyGck"
+
+# User account session
+SESSION_STRING = "BQJVPVgAC506aVEIB8oiezA2ZOuQc6IAkl9s_XW5nvCFSyNrnzSnR7aPgvgtM6uWYGL-GNqnqo-1hPU6aXwklftYWZVyYPmktJu2sQXgZYl_oPLcCeQFKYPEeHGCt_aGqv2vT_jW9wbW_QwOXaE3fwpq6wtE-CuCqQiNE9vtxI3CTra1PpNEXmUtaxV0M0vfv2fzX5_WP6oszXBp5e7IWdR7RJdCvy6VKY-2hOxRYDslFdgXNZEzfZNL-BsKhD1TGub8nNjyEBvVGmAvaCMlPjbyTuxv_nzjzLxxBbSSlSma7916CBiXSlB-bp1b5VWvnLsc67lk47CXHAYTePHup1aEiN772QAAAAGtHKplAA"
+
+# Authorized library channel
 CHANNEL_ID = -1004332383599
 
 # Optional backup channel
 BACKUP_CHANNEL_ID = -1004433067284
 
-# Your Telegram user ID
+# Telegram admin user ID
 ADMIN_USER_ID = 7199304293
 
 # Main channel
 MAIN_CHANNEL_LINK = "https://t.me/mfottupdates"
 
 
-# =========================================================
-#                       LOGGING
-# =========================================================
+# ==========================================================
+#                         LOGGING
+# ==========================================================
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
-logger = logging.getLogger("MOVIE_SEARCH_BOT")
+logger = logging.getLogger("MOVIE-BOT")
 
 
-# =========================================================
+# ==========================================================
 #                       DATABASE
-# =========================================================
+# ==========================================================
 
 DB_FILE = "movies.db"
 
@@ -59,9 +64,7 @@ db = sqlite3.connect(
     check_same_thread=False
 )
 
-cursor = db.cursor()
-
-cursor.execute("""
+db.execute("""
 CREATE TABLE IF NOT EXISTS movies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -69,9 +72,9 @@ CREATE TABLE IF NOT EXISTS movies (
 
     channel_id INTEGER NOT NULL,
 
-    title TEXT,
+    title TEXT NOT NULL,
 
-    search_text TEXT,
+    search_text TEXT NOT NULL,
 
     file_name TEXT,
 
@@ -84,22 +87,9 @@ CREATE TABLE IF NOT EXISTS movies (
 db.commit()
 
 
-# =========================================================
-#                         PYROGRAM
-# =========================================================
-
-app = Client(
-    "movie_search_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
-
-
-# =========================================================
-#                       FLASK SERVER
-#                     FOR RENDER HOST
-# =========================================================
+# ==========================================================
+#                       FLASK HTTP
+# ==========================================================
 
 web = Flask(__name__)
 
@@ -108,76 +98,75 @@ web = Flask(__name__)
 def home():
 
     return """
-    <!DOCTYPE html>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width,initial-scale=1">
 
-    <html>
+    <title>Movie Search Bot</title>
 
-    <head>
+    <style>
 
-        <title>Movie Search Bot</title>
+        body {
+            margin: 0;
+            min-height: 100vh;
 
-        <meta name="viewport"
-              content="width=device-width, initial-scale=1">
+            display: flex;
+            align-items: center;
+            justify-content: center;
 
-        <style>
+            background: #080808;
+            color: white;
 
-            body {
-                margin: 0;
-                min-height: 100vh;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
 
-                display: flex;
-                align-items: center;
-                justify-content: center;
+        .box {
+            padding: 35px;
 
-                background: #080808;
-                color: white;
+            border-radius: 22px;
 
-                font-family:
-                Arial,
-                sans-serif;
+            background: #151515;
 
-                text-align: center;
-            }
+            box-shadow:
+                0 0 35px
+                rgba(255,255,255,.08);
+        }
 
-            .box {
-                padding: 35px;
-                border-radius: 20px;
+        h1 {
+            margin-bottom: 10px;
+        }
 
-                background: #151515;
+        p {
+            color: #aaa;
+        }
 
-                box-shadow:
-                0 0 30px
-                rgba(255,255,255,0.08);
-            }
+        .online {
+            color: #6cff8b;
+            font-weight: bold;
+        }
 
-            h1 {
-                margin-bottom: 10px;
-            }
+    </style>
+</head>
 
-            p {
-                color: #aaa;
-            }
+<body>
 
-        </style>
+<div class="box">
 
-    </head>
+    <h1>🎬 Movie Search Bot</h1>
 
-    <body>
+    <p class="online">● ONLINE</p>
 
-        <div class="box">
+    <p>Telegram Bot + Userbot + HTTP Server</p>
 
-            <h1>🎬 Movie Search Bot</h1>
+</div>
 
-            <p>Bot is online and running.</p>
-
-            <p>⚡ Status: ONLINE</p>
-
-        </div>
-
-    </body>
-
-    </html>
-    """
+</body>
+</html>
+"""
 
 
 @web.route("/health")
@@ -185,21 +174,45 @@ def health():
 
     return {
         "status": "online",
-        "service": "Movie Search Bot"
+        "service": "movie-search-bot"
     }
 
 
-def run_web():
+def run_http():
 
     web.run(
         host="0.0.0.0",
-        port=10000
+        port=10000,
+        debug=False,
+        use_reloader=False
     )
 
 
-# =========================================================
-#                       TEXT CLEANER
-# =========================================================
+# ==========================================================
+#                     TELEGRAM CLIENTS
+# ==========================================================
+
+# Userbot
+userbot = Client(
+    "movie_userbot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
+
+
+# Bot
+bot = Client(
+    "movie_search_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+
+# ==========================================================
+#                        HELPERS
+# ==========================================================
 
 def clean_text(text):
 
@@ -214,14 +227,8 @@ def clean_text(text):
         text
     )
 
-    return " ".join(
-        text.split()
-    )
+    return " ".join(text.split())
 
-
-# =========================================================
-#                    FILE INFORMATION
-# =========================================================
 
 def get_file_info(message):
 
@@ -231,8 +238,7 @@ def get_file_info(message):
     if message.document:
 
         file_name = (
-            message.document.file_name
-            or ""
+            message.document.file_name or ""
         )
 
         file_type = "document"
@@ -240,8 +246,7 @@ def get_file_info(message):
     elif message.video:
 
         file_name = (
-            message.video.file_name
-            or ""
+            message.video.file_name or ""
         )
 
         file_type = "video"
@@ -249,8 +254,7 @@ def get_file_info(message):
     elif message.audio:
 
         file_name = (
-            message.audio.file_name
-            or ""
+            message.audio.file_name or ""
         )
 
         file_type = "audio"
@@ -258,8 +262,7 @@ def get_file_info(message):
     elif message.animation:
 
         file_name = (
-            message.animation.file_name
-            or ""
+            message.animation.file_name or ""
         )
 
         file_type = "animation"
@@ -267,35 +270,24 @@ def get_file_info(message):
     return file_name, file_type
 
 
-# =========================================================
-#                       GET TITLE
-# =========================================================
-
 def get_title(message):
 
     caption = (
-        message.caption
-        or ""
+        message.caption or ""
     ).strip()
 
-    file_name, _ = get_file_info(
-        message
-    )
+    file_name, _ = get_file_info(message)
 
-    # Caption has priority
     if caption:
 
         return caption[:200]
 
-    # Otherwise filename
     if file_name:
-
-        title = file_name
 
         title = re.sub(
             r"\.[^.]+$",
             "",
-            title
+            file_name
         )
 
         title = re.sub(
@@ -315,9 +307,9 @@ def get_title(message):
     return "Unknown Movie"
 
 
-# =========================================================
-#                    SAVE MOVIE TO DB
-# =========================================================
+# ==========================================================
+#                     DATABASE SAVE
+# ==========================================================
 
 def save_movie(message):
 
@@ -327,7 +319,6 @@ def save_movie(message):
         or message.audio
         or message.animation
     ):
-
         return
 
     file_name, file_type = get_file_info(
@@ -344,7 +335,7 @@ def save_movie(message):
 
     try:
 
-        cursor.execute("""
+        db.execute("""
         INSERT OR REPLACE INTO movies
         (
             message_id,
@@ -369,25 +360,26 @@ def save_movie(message):
     except Exception as error:
 
         logger.error(
-            f"Database error: {error}"
+            "Database save error: %s",
+            error
         )
 
 
-# =========================================================
-#                    INDEX OLD CHANNEL FILES
-# =========================================================
+# ==========================================================
+#                 USERBOT: INDEX CHANNEL
+# ==========================================================
 
 async def index_channel():
 
     logger.info(
-        "Starting channel indexing..."
+        "Starting authorized library indexing..."
     )
 
     count = 0
 
     try:
 
-        async for message in app.get_chat_history(
+        async for message in userbot.get_chat_history(
             CHANNEL_ID
         ):
 
@@ -398,20 +390,20 @@ async def index_channel():
                 or message.animation
             ):
 
-                save_movie(
-                    message
-                )
+                save_movie(message)
 
                 count += 1
 
                 if count % 100 == 0:
 
                     logger.info(
-                        f"Indexed {count} files"
+                        "Indexed %s files",
+                        count
                     )
 
         logger.info(
-            f"Index complete: {count} files"
+            "Index completed: %s files",
+            count
         )
 
         return count
@@ -419,21 +411,45 @@ async def index_channel():
     except Exception as error:
 
         logger.error(
-            f"Index error: {error}"
+            "Indexing failed: %s",
+            error
         )
 
         return 0
 
 
-# =========================================================
-#                         /START
-# =========================================================
+# ==========================================================
+#              USERBOT: NEW FILE AUTO INDEX
+# ==========================================================
 
-@app.on_message(
+@userbot.on_message(
+    filters.chat(CHANNEL_ID) &
+    (
+        filters.document |
+        filters.video |
+        filters.audio |
+        filters.animation
+    )
+)
+async def new_file(message):
+
+    save_movie(message)
+
+    logger.info(
+        "New library file indexed: %s",
+        message.id
+    )
+
+
+# ==========================================================
+#                         /START
+# ==========================================================
+
+@bot.on_message(
     filters.private &
     filters.command("start")
 )
-async def start_handler(
+async def start_command(
     client,
     message
 ):
@@ -442,8 +458,8 @@ async def start_handler(
 
         [
             InlineKeyboardButton(
-                "🔎 SEARCH MOVIE",
-                callback_data="search_info"
+                "🔎 SEARCH",
+                callback_data="search"
             )
         ],
 
@@ -470,29 +486,30 @@ async def start_handler(
 
 ━━━━━━━━━━━━━━━━━━━━
 
-🔎 <b>Search your movie library</b>
+Welcome! 👋
 
-Simply send the movie name.
+🔎 Search the authorized
+movie/video library instantly.
 
-<b>Example:</b>
+Just send a movie name.
+
+<b>Examples:</b>
 
 <code>Avatar</code>
 
 <code>Interstellar</code>
 
-<code>Batman</code>
-
-<code>Avengers Endgame</code>
+<code>Avengers</code>
 
 ━━━━━━━━━━━━━━━━━━━━
 
 ⚡ Fast Search
-🎬 Movie Library
-📂 File Search
+🎬 Library Search
+📂 File Database
 
 ━━━━━━━━━━━━━━━━━━━━
 
-<b>Send a movie name to begin.</b>
+<b>Send a movie name to search.</b>
         """,
 
         reply_markup=keyboard,
@@ -501,68 +518,14 @@ Simply send the movie name.
     )
 
 
-# =========================================================
-#                     SEARCH INFO
-# =========================================================
-
-@app.on_callback_query(
-    filters.regex("^search_info$")
-)
-async def search_info(
-    client,
-    callback
-):
-
-    await callback.answer()
-
-    await callback.message.edit_text(
-
-        """
-<b>🔎 MOVIE SEARCH</b>
-
-━━━━━━━━━━━━━━━━━━━━
-
-Send the movie name in this chat.
-
-<b>Examples:</b>
-
-<code>Avatar</code>
-
-<code>Interstellar</code>
-
-<code>KGF</code>
-
-<code>Avengers</code>
-
-━━━━━━━━━━━━━━━━━━━━
-
-The bot searches the indexed
-authorized movie library.
-        """,
-
-        reply_markup=InlineKeyboardMarkup([
-
-            [
-                InlineKeyboardButton(
-                    "🔙 BACK",
-                    callback_data="back"
-                )
-            ]
-
-        ]),
-
-        parse_mode=ParseMode.HTML
-    )
-
-
-# =========================================================
+# ==========================================================
 #                         HELP
-# =========================================================
+# ==========================================================
 
-@app.on_callback_query(
+@bot.on_callback_query(
     filters.regex("^help$")
 )
-async def help_handler(
+async def help_callback(
     client,
     callback
 ):
@@ -576,23 +539,73 @@ async def help_handler(
 
 ━━━━━━━━━━━━━━━━━━━━
 
-<b>1.</b> Send the movie name.
+<b>1️⃣</b> Send movie name.
 
-<b>2.</b> Bot searches the library.
+<b>2️⃣</b> Bot searches the library.
 
-<b>3.</b> Matching movies appear.
+<b>3️⃣</b> Matching results appear.
 
-<b>4.</b> Select the movie.
+<b>4️⃣</b> Select a result.
 
-<b>5.</b> The authorized file is sent.
+<b>5️⃣</b> The authorized file is
+sent to your chat.
 
 ━━━━━━━━━━━━━━━━━━━━
 
-<b>ADMIN COMMANDS</b>
+<b>ADMIN</b>
 
 <code>/stats</code>
 
 <code>/reindex</code>
+
+<code>/clear</code>
+        """,
+
+        reply_markup=InlineKeyboardMarkup([
+
+            [
+                InlineKeyboardButton(
+                    "🔙 BACK",
+                    callback_data="back"
+                )
+            ]
+
+        ]),
+
+        parse_mode=ParseMode.HTML
+    )
+
+
+# ==========================================================
+#                         SEARCH INFO
+# ==========================================================
+
+@bot.on_callback_query(
+    filters.regex("^search$")
+)
+async def search_callback(
+    client,
+    callback
+):
+
+    await callback.answer()
+
+    await callback.message.edit_text(
+
+        """
+<b>🔎 SEARCH MOVIE</b>
+
+━━━━━━━━━━━━━━━━━━━━
+
+Send the movie name here.
+
+<b>Example:</b>
+
+<code>Interstellar</code>
+
+<code>Avatar</code>
+
+<code>Batman</code>
 
 ━━━━━━━━━━━━━━━━━━━━
         """,
@@ -612,14 +625,14 @@ async def help_handler(
     )
 
 
-# =========================================================
-#                         BACK
-# =========================================================
+# ==========================================================
+#                          BACK
+# ==========================================================
 
-@app.on_callback_query(
+@bot.on_callback_query(
     filters.regex("^back$")
 )
-async def back_handler(
+async def back_callback(
     client,
     callback
 ):
@@ -631,7 +644,7 @@ async def back_handler(
         [
             InlineKeyboardButton(
                 "🔎 SEARCH",
-                callback_data="search_info"
+                callback_data="search"
             )
         ],
 
@@ -656,7 +669,10 @@ async def back_handler(
         """
 <b>🎬 MOVIE SEARCH BOT</b>
 
-Send a movie name to search.
+━━━━━━━━━━━━━━━━━━━━
+
+Send a movie name to search
+the authorized library.
         """,
 
         reply_markup=keyboard,
@@ -665,38 +681,33 @@ Send a movie name to search.
     )
 
 
-# =========================================================
-#                        SEARCH
-# =========================================================
+# ==========================================================
+#                       MOVIE SEARCH
+# ==========================================================
 
-@app.on_message(
+@bot.on_message(
     filters.private &
     filters.text &
-    ~filters.command(
-        "start"
-    )
+    ~filters.command("start")
 )
-async def search_handler(
+async def search_movies(
     client,
     message
 ):
 
     query = (
-        message.text
-        or ""
+        message.text or ""
     ).strip()
 
     if len(query) < 2:
 
         await message.reply_text(
-            "🔎 Please enter at least 2 characters."
+            "🔎 Enter at least 2 characters."
         )
 
         return
 
-    search = clean_text(
-        query
-    )
+    search = clean_text(query)
 
     words = search.split()
 
@@ -710,7 +721,7 @@ async def search_handler(
         )
 
         values.append(
-            f"%{word}%"
+            "%" + word + "%"
         )
 
     sql = f"""
@@ -725,32 +736,32 @@ async def search_handler(
     LIMIT 10
     """
 
-    cursor.execute(
+    cursor = db.execute(
         sql,
         values
     )
 
     results = cursor.fetchall()
 
-    # -----------------------------------------------------
+    # ------------------------------------------------------
     # NO RESULTS
-    # -----------------------------------------------------
+    # ------------------------------------------------------
 
     if not results:
 
         await message.reply_text(
 
             f"""
-<b>🔍 NO RESULTS FOUND</b>
+<b>🔍 NO RESULTS</b>
 
 ━━━━━━━━━━━━━━━━━━━━
 
 Search:
 <code>{query}</code>
 
-Try another movie name or spelling.
+No matching file was found.
 
-━━━━━━━━━━━━━━━━━━━━
+Try another spelling.
             """,
 
             parse_mode=ParseMode.HTML
@@ -758,9 +769,9 @@ Try another movie name or spelling.
 
         return
 
-    # -----------------------------------------------------
-    # RESULTS BUTTONS
-    # -----------------------------------------------------
+    # ------------------------------------------------------
+    # RESULTS
+    # ------------------------------------------------------
 
     buttons = []
 
@@ -771,12 +782,12 @@ Try another movie name or spelling.
         file_name
     ) in results:
 
-        display_title = title[:45]
+        title = title[:45]
 
         buttons.append([
 
             InlineKeyboardButton(
-                f"🎬 {display_title}",
+                f"🎬 {title}",
                 callback_data=f"movie:{message_id}"
             )
 
@@ -806,7 +817,7 @@ Found:
 
 ━━━━━━━━━━━━━━━━━━━━
 
-👇 Select a movie:
+👇 Select a result:
         """,
 
         reply_markup=InlineKeyboardMarkup(
@@ -817,16 +828,14 @@ Found:
     )
 
 
-# =========================================================
-#                     MOVIE SELECTION
-# =========================================================
+# ==========================================================
+#                    MOVIE RESULT
+# ==========================================================
 
-@app.on_callback_query(
-    filters.regex(
-        r"^movie:(\d+)$"
-    )
+@bot.on_callback_query(
+    filters.regex(r"^movie:(\d+)$")
 )
-async def movie_handler(
+async def movie_callback(
     client,
     callback
 ):
@@ -835,13 +844,13 @@ async def movie_handler(
         callback.matches[0].group(1)
     )
 
-    cursor.execute("""
-    SELECT
-        channel_id,
-        title,
-        file_name
-    FROM movies
-    WHERE message_id = ?
+    cursor = db.execute("""
+        SELECT
+            channel_id,
+            title,
+            file_name
+        FROM movies
+        WHERE message_id = ?
     """, (
         message_id,
     ))
@@ -860,23 +869,21 @@ async def movie_handler(
     channel_id, title, file_name = movie
 
     await callback.answer(
-        "⏳ Preparing file..."
+        "⏳ Preparing..."
     )
 
     try:
 
-        # Send/copy the authorized library message
-        await client.copy_message(
+        # Use the USERBOT to access the
+        # authorized library message.
 
+        await userbot.copy_message(
             chat_id=callback.from_user.id,
-
             from_chat_id=channel_id,
-
             message_id=message_id
-
         )
 
-        await client.send_message(
+        await bot.send_message(
 
             callback.from_user.id,
 
@@ -889,14 +896,14 @@ async def movie_handler(
 
 ━━━━━━━━━━━━━━━━━━━━
 
-📢 <b>Main Channel</b>
+📢 Main Channel
             """,
 
             reply_markup=InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
-                        "📢 JOIN CHANNEL",
+                        "📢 MAIN CHANNEL",
                         url=MAIN_CHANNEL_LINK
                     )
                 ]
@@ -909,67 +916,36 @@ async def movie_handler(
     except Exception as error:
 
         logger.error(
-            f"File sending error: {error}"
+            "Send error: %s",
+            error
         )
 
-        await callback.message.reply_text(
-
-            """
-❌ <b>Unable to send this file.</b>
-
-The original channel message may no
-longer be available or the bot may
-not have permission to access it.
-            """,
-
-            parse_mode=ParseMode.HTML
+        await callback.answer(
+            "❌ Unable to access this file.",
+            show_alert=True
         )
 
 
-# =========================================================
-#                AUTO INDEX NEW CHANNEL FILES
-# =========================================================
-
-@app.on_message(
-    filters.chat(CHANNEL_ID) &
-    (
-        filters.document |
-        filters.video |
-        filters.audio |
-        filters.animation
-    )
-)
-async def new_file_handler(
-    client,
-    message
-):
-
-    save_movie(
-        message
-    )
-
-    logger.info(
-        f"New file indexed: {message.id}"
-    )
-
-
-# =========================================================
-#                      ADMIN CHECK
-# =========================================================
+# ==========================================================
+#                       ADMIN CHECK
+# ==========================================================
 
 def is_admin(user_id):
 
-    return user_id == ADMIN_USER_ID
+    return (
+        user_id == ADMIN_USER_ID
+    )
 
 
-# =========================================================
-#                     ADMIN /STATS
-# =========================================================
+# ==========================================================
+#                         /STATS
+# ==========================================================
 
-@app.on_message(
+@bot.on_message(
+    filters.private &
     filters.command("stats")
 )
-async def stats_handler(
+async def stats_command(
     client,
     message
 ):
@@ -977,10 +953,9 @@ async def stats_handler(
     if not is_admin(
         message.from_user.id
     ):
-
         return
 
-    cursor.execute(
+    cursor = db.execute(
         "SELECT COUNT(*) FROM movies"
     )
 
@@ -993,13 +968,19 @@ async def stats_handler(
 
 ━━━━━━━━━━━━━━━━━━━━
 
-🎬 Total Files:
+🎬 Indexed Files:
 <b>{total}</b>
 
 🗄 Database:
 <b>SQLite</b>
 
-⚡ Bot:
+🤖 Bot:
+<b>ONLINE</b>
+
+👤 Userbot:
+<b>ONLINE</b>
+
+🌐 HTTP:
 <b>ONLINE</b>
 
 ━━━━━━━━━━━━━━━━━━━━
@@ -1009,14 +990,15 @@ async def stats_handler(
     )
 
 
-# =========================================================
-#                    ADMIN /REINDEX
-# =========================================================
+# ==========================================================
+#                        /REINDEX
+# ==========================================================
 
-@app.on_message(
+@bot.on_message(
+    filters.private &
     filters.command("reindex")
 )
-async def reindex_handler(
+async def reindex_command(
     client,
     message
 ):
@@ -1024,11 +1006,10 @@ async def reindex_handler(
     if not is_admin(
         message.from_user.id
     ):
-
         return
 
     status = await message.reply_text(
-        "⏳ <b>Reindexing library...</b>",
+        "⏳ <b>Reindexing...</b>",
         parse_mode=ParseMode.HTML
     )
 
@@ -1037,18 +1018,15 @@ async def reindex_handler(
     await status.edit_text(
 
         f"""
-<b>✅ REINDEX COMPLETED</b>
+<b>✅ REINDEX COMPLETE</b>
 
 ━━━━━━━━━━━━━━━━━━━━
 
-🎬 Indexed Files:
-<b>{count}</b>
+🎬 Indexed:
+<b>{count}</b> files
 
-📂 Library:
+📂 Database:
 <b>Updated</b>
-
-⚡ Status:
-<b>READY</b>
 
 ━━━━━━━━━━━━━━━━━━━━
         """,
@@ -1057,14 +1035,15 @@ async def reindex_handler(
     )
 
 
-# =========================================================
-#                       ADMIN /CLEAR
-# =========================================================
+# ==========================================================
+#                          /CLEAR
+# ==========================================================
 
-@app.on_message(
+@bot.on_message(
+    filters.private &
     filters.command("clear")
 )
-async def clear_handler(
+async def clear_command(
     client,
     message
 ):
@@ -1072,10 +1051,9 @@ async def clear_handler(
     if not is_admin(
         message.from_user.id
     ):
-
         return
 
-    cursor.execute(
+    db.execute(
         "DELETE FROM movies"
     )
 
@@ -1086,69 +1064,107 @@ async def clear_handler(
         """
 <b>🗑 DATABASE CLEARED</b>
 
-All indexed records have been removed.
+The local search index has been cleared.
 
 Use:
 
 <code>/reindex</code>
 
-to index the authorized channel again.
+to rebuild it from the authorized library.
         """,
 
         parse_mode=ParseMode.HTML
     )
 
 
-# =========================================================
-#                    BOT STARTUP
-# =========================================================
+# ==========================================================
+#                         START ALL
+# ==========================================================
 
 async def main():
 
     logger.info(
-        "Starting Movie Search Bot..."
+        "Starting HTTP server..."
     )
 
-    await app.start()
-
-    me = await app.get_me()
-
-    logger.info(
-        f"Bot started: @{me.username}"
-    )
-
-    # Initial indexing
-    await index_channel()
-
-    logger.info(
-        "================================="
-    )
-
-    logger.info(
-        "MOVIE SEARCH BOT IS ONLINE"
-    )
-
-    logger.info(
-        "================================="
-    )
-
-    # Keep bot running
-    await asyncio.Event().wait()
-
-
-# =========================================================
-#                         RUN
-# =========================================================
-
-if __name__ == "__main__":
-
-    # Render HTTP server
     Thread(
-        target=run_web,
+        target=run_http,
         daemon=True
     ).start()
 
-    # Telegram bot
-    asyncio.run(
-        main()
+    logger.info(
+        "Starting USERBOT..."
+    )
+
+    await userbot.start()
+
+    me = await userbot.get_me()
+
+    logger.info(
+        "USERBOT: @%s",
+        me.username or me.first_name
+    )
+
+    logger.info(
+        "Starting BOT..."
+    )
+
+    await bot.start()
+
+    bot_me = await bot.get_me()
+
+    logger.info(
+        "BOT: @%s",
+        bot_me.username
+    )
+
+    logger.info(
+        "Indexing authorized library..."
+    )
+
+    await index_channel()
+
+    logger.info(
+        "======================================"
+    )
+
+    logger.info(
+        "🎬 MOVIE SEARCH SYSTEM ONLINE"
+    )
+
+    logger.info(
+        "🤖 BOT       : ONLINE"
+    )
+
+    logger.info(
+        "👤 USERBOT   : ONLINE"
+    )
+
+    logger.info(
+        "🌐 HTTP      : ONLINE"
+    )
+
+    logger.info(
+        "======================================"
+    )
+
+    await asyncio.Event().wait()
+
+
+# ==========================================================
+#                          RUN
+# ==========================================================
+
+if __name__ == "__main__":
+
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        logger.info(
+            "Bot stopped."
     )
