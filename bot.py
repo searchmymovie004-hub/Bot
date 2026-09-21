@@ -4,19 +4,19 @@ import logging
 import asyncio
 from flask import Flask
 from threading import Thread
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ChatJoinRequest, CallbackQuery
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ChatJoinRequest
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, ChatJoinRequestHandler, CallbackQueryHandler, filters
 
 # ലോഗിംഗ് സെറ്റപ്പ്
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# കോൺഫിഗറേഷൻ വിവരങ്ങൾ
-TOKEN = "8973220687:AAE-4JEQ_ND5zb7g0Y7Iuan4XN1ephfz1uw"
+# പുതിയ ബോട്ട് ടോക്കണും മറ്റ് വിവരങ്ങളും
+TOKEN = "8973220687:AAHDy_-lAL7hyiJtja59XzXRvOHibEzTTjU"
 CHANNEL_ID = -1004332383599        # മെയിൻ പ്രൈവറ്റ് ചാനൽ ഐഡി
 BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി
 ADMIN_USER_ID = 7199304293
-MAIN_CHANNEL_LINK = "https://t.me/mfottupdates"
+MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
 # --- 1. HTTP Web Service (Render-ന് വേണ്ടി) ---
 app = Flask('')
@@ -52,7 +52,7 @@ async def auto_accept(update: ChatJoinRequest, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         logger.error(f"Failed to approve join request: {e}")
 
-# --- 4. /admin കമാൻഡ് (അഡ്മിൻ പാനൽ ഓൺ ചെയ്യാൻ) ---
+# --- 4. /admin കമാൻഡ് ---
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_USER_ID:
@@ -65,7 +65,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ You are not authorized to use this command.")
 
-# --- 5. /exit കമാൻഡ് (അഡ്മിൻ മോഡ് ഓഫ് ചെയ്യാൻ) ---
+# --- 5. /exit കമാൻഡ് ---
 async def exit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id == ADMIN_USER_ID:
@@ -82,7 +82,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = message.chat
 
     if chat.type == "private":
-        # അഡ്മിൻ ആണോ എന്നും, അഡ്മിൻ മോഡ് ഓൺ ആണോ എന്നും പരിശോധിക്കുന്നു
         if user.id == ADMIN_USER_ID and context.user_data.get('admin_mode', False):
             if message.document or message.video or message.photo:
                 caption = message.caption or message.text or ""
@@ -99,14 +98,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         sent_msg = await context.bot.send_video(chat_id=CHANNEL_ID, video=message.video.file_id, caption=cleaned_cap)
                     
                     if sent_msg:
-                        # ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു
                         backup_msg = await context.bot.copy_message(
                             chat_id=BACKUP_CHANNEL_ID,
                             from_chat_id=CHANNEL_ID,
                             message_id=sent_msg.message_id
                         )
                         
-                        # ഡാറ്റാബേസിൽ (bot_data) മൂവി സേവ് ചെയ്യുന്നു
                         if 'movies_db' not in context.bot_data:
                             context.bot_data['movies_db'] = []
                         
@@ -123,7 +120,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await message.reply_text("👋 Admin Mode is ON. Send any movie file/poster to upload, or type `/exit` to close.")
         
         else:
-            # നോർമൽ യൂസർമാർക്കും (അഡ്മിൻ മോഡ് ഓഫ് ചെയ്ത സമയത്തെ അഡ്മിനും) മൂവി സെർച്ച് വർക്ക് ചെയ്യും
             query_text = message.text
             if not query_text or query_text.startswith("/"):
                 return
@@ -167,7 +163,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message_id=msg_id
             )
             
-            # 5 മിനിറ്റിനു ശേഷം ഓട്ടോ ഡിലീറ്റ് ചെയ്യാൻ
             asyncio.create_task(delete_after_delay(context, query.message.chat.id, forwarded.message_id, 300))
             
             await query.message.reply_text("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
@@ -192,7 +187,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 def main():
+    # ഫ്ലാസ്ക് വെബ് സർവർ ബാക്ക്ഗ്രൗണ്ടിൽ സ്റ്റാർട്ട് ചെയ്യുന്നു
     keep_alive()
+
     application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
@@ -203,7 +200,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.DOCUMENT | filters.VIDEO & filters.PRIVATE, handle_message))
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    print("Movie Search Bot with Toggle Admin Panel is running...")
+    print("Movie Search Bot is starting...")
     application.run_polling()
 
 if __name__ == '__main__':
