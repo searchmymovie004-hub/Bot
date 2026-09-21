@@ -12,17 +12,15 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
-API_ID = 39140696  # നിങ്ങളുടെ അക്കൗണ്ട് API_ID
-API_HASH = "64757b9724e7143c5cc554d7a776334b"  # നിങ്ങളുടെ അക്കൗണ്ട് API_HASH
+API_ID = 39140696  
+API_HASH = "64757b9724e7143c5cc554d7a776334b"  
 BOT_TOKEN = "8973220687:AAHDy_-lAL7hyiJtja59XzXRvOHibEzTTjU"
-
-# നിങ്ങൾ തന്ന സെഷൻ സ്ട്രിങ് ഇവിടെ ചേർത്തിരിക്കുന്നു
 SESSION_STRING = "BQJVPVgAwc3boJ7aTpurbBFc0Fr12QKMVkCkT1dQ6QBi25nJzCrS0Vvg1YxNPisH8WR2mnUEYTGGRk4WVlu6Ydv69eFO-WMKIfL13kQBok3jJyHmDWEF4qnqUXOQXbsnjQNoVoSDEjdxd8AxUApcAV-d1YPTlVvXhdVd-_NNCCNQ--qFL7FrZtGPi1kCklzS-OEaByn8O9PIn4b-Gw9WQGEOik5KMJ4q_-GjS-oWu7EvjmZJt3V_nhF4f7TAKbayGhzbxqu6RwB31SP5bSL8CdomaV7n5v3WA-QhzGBGDjgFghjA3kkdfhbwYDNWcZAlqEMANzg6AW1jvRBzc_ZoEulO67pXlAAAAAGtHKplAA"
 
-CHANNEL_ID = -1004332383599        # മെയിൻ ചാനൽ ഐഡി
-BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി
+CHANNEL_ID = -1004332383599        
+BACKUP_CHANNEL_ID = -1004433067284   
 ADMIN_USER_ID = 7199304293
-MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
+MAIN_CHANNEL_LINK = "https://t.me/mfottupdates"
 
 MOVIES_DB = []
 
@@ -31,7 +29,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Movie Search Bot with Session String is running live!"
+    return "Movie Search Bot is running live!"
 
 def run_http_server():
     port = int(os.environ.get("PORT", 8080))
@@ -42,7 +40,7 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. Pyrogram Client Initialization (Session String ഉപയോഗിച്ച്) ---
+# --- 2. Pyrogram Client ---
 bot = Client(
     "movie_bot_session",
     api_id=API_ID,
@@ -51,7 +49,6 @@ bot = Client(
     session_string=SESSION_STRING
 )
 
-# ക്യാപ്ഷൻ ക്ലീൻ ചെയ്യാനുള്ള ഫങ്ഷൻ
 def clean_caption(caption: str) -> str:
     if not caption:
         return "🎬 New Movie Added!"
@@ -61,7 +58,6 @@ def clean_caption(caption: str) -> str:
     cleaned = '\n'.join([line.strip() for line in cleaned.splitlines() if line.strip()])
     return cleaned if cleaned else "🎬 New Movie Added!"
 
-# ഫയൽ സൈസ് കണക്കാക്കാൻ
 def get_file_size(message):
     media = message.document or message.video
     if not media:
@@ -72,7 +68,6 @@ def get_file_size(message):
     else:
         return f"{size_mb:.1f} MB"
 
-# --- 3. ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ബാക്ക്അപ്പ് ചാനലിലെ പഴയ ഫയലുകൾ ഇൻഡക്സ് ചെയ്യാൻ ---
 async def index_channel_files():
     try:
         async for message in bot.get_chat_history(BACKUP_CHANNEL_ID):
@@ -91,7 +86,6 @@ async def index_channel_files():
     except Exception as e:
         logger.error(f"Error indexing files: {e}")
 
-# --- 4. അഡ്മിൻ ഫയൽ അപ്‌ലോഡ് ഹാൻഡ്ലർ ---
 @bot.on_message(filters.private & filters.user(ADMIN_USER_ID) & (filters.document | filters.video | filters.photo))
 async def handle_admin_upload(client, message):
     caption = message.caption or message.text or ""
@@ -99,7 +93,6 @@ async def handle_admin_upload(client, message):
     
     try:
         sent_msg = await message.copy(chat_id=CHANNEL_ID, caption=cleaned_cap)
-        
         backup_msg = await client.copy_message(
             chat_id=BACKUP_CHANNEL_ID,
             from_chat_id=CHANNEL_ID,
@@ -118,9 +111,8 @@ async def handle_admin_upload(client, message):
         await message.reply("✨ Success! Movie uploaded to channels and added to search index.")
     except Exception as e:
         logger.error(f"Upload error: {e}")
-        await message.reply("❌ Error: Failed to upload file. Check bot admin rights.")
+        await message.reply("❌ Error: Failed to upload file.")
 
-# --- 5. യൂസർ മൂവി ചോദിച്ചു വരുമ്പോൾ (Search & Pagination) ---
 @bot.on_message(filters.private & ~filters.user(ADMIN_USER_ID) & filters.text)
 async def handle_user_search(client, message):
     query_text = message.text
@@ -163,10 +155,8 @@ async def send_movie_page(client, chat_id, movies, page=0):
     keyboard_buttons.append([InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)])
     reply_markup = InlineKeyboardMarkup(keyboard_buttons)
     
-    text = f"🎬 Search Results (Page {page+1}):\nSelect your movie below:"
-    await client.send_message(chat_id, text, reply_markup=reply_markup)
+    await client.send_message(chat_id, f"🎬 Search Results (Page {page+1}):\nSelect your movie below:", reply_markup=reply_markup)
 
-# --- 6. ബട്ടൺ ക്ലിക്കുകൾ ഹാൻഡിൽ ചെയ്യാൻ (Pagination & 5 Min Auto-Delete) ---
 @bot.on_callback_query()
 async def button_callback(client, callback_query):
     data = callback_query.data
@@ -217,7 +207,7 @@ async def button_callback(client, callback_query):
                 message_id=msg_id
             )
             asyncio.create_task(delete_after_delay(client, callback_query.message.chat.id, forwarded.id, 300))
-            await callback_query.message.reply("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
+            await callback_query.message.reply("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes.")
             await callback_query.answer()
         except Exception as e:
             logger.error(f"Error sending file: {e}")
@@ -230,7 +220,6 @@ async def delete_after_delay(client, chat_id, message_id, delay):
     except Exception as e:
         logger.error(f"Auto-delete failed: {e}")
 
-# സ്റ്റാർട്ട് കമാൻഡ്
 @bot.on_message(filters.private & filters.command("start"))
 async def start_cmd(client, message):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]])
@@ -239,16 +228,14 @@ async def start_cmd(client, message):
         reply_markup=keyboard
     )
 
-if __name__ == "__main__":
+async def main():
     keep_alive()
-    print("Starting Pyrogram Movie Bot with Session String...")
-    
-    # ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ഇൻഡക്സിങ് റൺ ചെയ്യാൻ
-    async def main():
-        async with bot:
-            print("Indexing old files from backup channel...")
-            await index_channel_files()
-            print("Bot is fully active!")
-            await asyncio.Future()
+    print("Starting Pyrogram Movie Bot...")
+    async with bot:
+        print("Indexing old files from backup channel...")
+        await index_channel_files()
+        print("Bot is fully active and running!")
+        await asyncio.Future()
 
+if __name__ == "__main__":
     asyncio.run(main())
