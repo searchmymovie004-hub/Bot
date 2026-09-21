@@ -1,13 +1,4 @@
 import asyncio
-import sys
-
-# Python 3.14-ൽ ഇവന്റ് ലൂപ്പ് മിസ്സിംഗ് ആകാതിരിക്കാൻ
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
 import os
 import re
 import logging
@@ -23,17 +14,18 @@ logger = logging.getLogger(__name__)
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
 API_ID = 39140696  
 API_HASH = "64757b9724e7143c5cc554d7a776334b"  
-BOT_TOKEN = "8973220687:AAF21WVm2DnsLRsp7eoCSjMBcL18K2v27Z0"
+BOT_TOKEN = "8973220687:AAGLKNg7_EudKHdur5ByFR_dlELLhn15Sb8"
 SESSION_STRING = "BQJVPVgAC506aVEIB8oiezA2ZOuQc6IAkl9s_XW5nvCFSyNrnzSnR7aPgvgtM6uWYGL-GNqnqo-1hPU6aXwklftYWZVyYPmktJu2sQXgZYl_oPLcCeQFKYPEeHGCt_aGqv2vT_jW9wbW_QwOXaE3fwpq6wtE-CuCqQiNE9vtxI3CTra1PpNEXmUtaxV0M0vfv2fzX5_WP6oszXBp5e7IWdR7RJdCvy6VKY-2hOxRYDslFdgXNZEzfZNL-BsKhD1TGub8nNjyEBvVGmAvaCMlPjbyTuxv_nzjzLxxBbSSlSma7916CBiXSlB-bp1b5VWvnLsc67lk47CXHAYTePHup1aEiN772QAAAAGtHKplAA"
 
+# ചാനൽ ഐഡികൾ
 CHANNEL_ID = -1004332383599        
 BACKUP_CHANNEL_ID = -1004433067284   
 ADMIN_USER_ID = 7199304293
-MAIN_CHANNEL_LINK = "https://t.me/mfottupdates"
+MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
 
 MOVIES_DB = []
 
-# --- 1. HTTP Web Service ---
+# --- 1. HTTP Web Service (Render-ന് വേണ്ടി) ---
 app = Flask('')
 
 @app.route('/')
@@ -79,11 +71,11 @@ def get_file_size(message):
 
 async def index_channel_files():
     try:
-        # ചാനലുകൾ കാഷെ ചെയ്യാൻ ആദ്യം ഒന്ന് ഗെറ്റ് ചെയ്യുന്നു
-        await bot.get_chat(CHANNEL_ID)
-        await bot.get_chat(BACKUP_CHANNEL_ID)
+        # ചാനലുകൾ int() ആക്കി കാഷെ ചെയ്യുന്നു
+        await bot.get_chat(int(CHANNEL_ID))
+        await bot.get_chat(int(BACKUP_CHANNEL_ID))
         
-        async for message in bot.get_chat_history(BACKUP_CHANNEL_ID):
+        async for message in bot.get_chat_history(int(BACKUP_CHANNEL_ID)):
             if message.document or message.video or message.photo:
                 caption = message.caption or ""
                 movie_name = caption.splitlines()[0] if caption else "Unknown Movie"
@@ -105,10 +97,10 @@ async def handle_admin_upload(client, message):
     cleaned_cap = clean_caption(caption)
     
     try:
-        sent_msg = await message.copy(chat_id=CHANNEL_ID, caption=cleaned_cap)
+        sent_msg = await message.copy(chat_id=int(CHANNEL_ID), caption=cleaned_cap)
         backup_msg = await client.copy_message(
-            chat_id=BACKUP_CHANNEL_ID,
-            from_chat_id=CHANNEL_ID,
+            chat_id=int(BACKUP_CHANNEL_ID),
+            from_chat_id=int(CHANNEL_ID),
             message_id=sent_msg.id
         )
         
@@ -216,7 +208,7 @@ async def button_callback(client, callback_query):
         try:
             forwarded = await client.copy_message(
                 chat_id=callback_query.message.chat.id,
-                from_chat_id=BACKUP_CHANNEL_ID,
+                from_chat_id=int(BACKUP_CHANNEL_ID),
                 message_id=msg_id
             )
             asyncio.create_task(delete_after_delay(client, callback_query.message.chat.id, forwarded.id, 300))
