@@ -12,11 +12,11 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
-API_ID = int(os.getenv("API_ID", 39140696))
-API_HASH = os.getenv("API_HASH", "64757b9724e7143c5cc554d7a776334b")
-BOT_TOKEN = "8729393771:AAG0wTxRCIqNKfomfXV7-lCEzWEkVGxepn0"
+API_ID = 39140696  # നിങ്ങളുടെ അക്കൗണ്ട് API_ID
+API_HASH = "64757b9724e7143c5cc554d7a776334b"  # നിങ്ങളുടെ അക്കൗണ്ട് API_HASH
+BOT_TOKEN = "8973220687:AAHDy_-lAL7hyiJtja59XzXRvOHibEzTTjU"
 
-# നിങ്ങൾ തന്ന സെഷൻ സ്ട്രിങ് ഇവിടെ നേരിട്ട് ചേർത്തിരിക്കുന്നു
+# നിങ്ങൾ തന്ന സെഷൻ സ്ട്രിങ് ഇവിടെ ചേർത്തിരിക്കുന്നു
 SESSION_STRING = "BQJVPVgAwc3boJ7aTpurbBFc0Fr12QKMVkCkT1dQ6QBi25nJzCrS0Vvg1YxNPisH8WR2mnUEYTGGRk4WVlu6Ydv69eFO-WMKIfL13kQBok3jJyHmDWEF4qnqUXOQXbsnjQNoVoSDEjdxd8AxUApcAV-d1YPTlVvXhdVd-_NNCCNQ--qFL7FrZtGPi1kCklzS-OEaByn8O9PIn4b-Gw9WQGEOik5KMJ4q_-GjS-oWu7EvjmZJt3V_nhF4f7TAKbayGhzbxqu6RwB31SP5bSL8CdomaV7n5v3WA-QhzGBGDjgFghjA3kkdfhbwYDNWcZAlqEMANzg6AW1jvRBzc_ZoEulO67pXlAAAAAGtHKplAA"
 
 CHANNEL_ID = -1004332383599        # മെയിൻ ചാനൽ ഐഡി
@@ -31,7 +31,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Movie Search Bot (Pyrogram) is running live!"
+    return "Movie Search Bot with Session String is running live!"
 
 def run_http_server():
     port = int(os.environ.get("PORT", 8080))
@@ -47,6 +47,7 @@ bot = Client(
     "movie_bot_session",
     api_id=API_ID,
     api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
     session_string=SESSION_STRING
 )
 
@@ -71,7 +72,7 @@ def get_file_size(message):
     else:
         return f"{size_mb:.1f} MB"
 
-# --- 3. ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ചാനലിലെ പഴയ ഫയലുകൾ ഓട്ടോമാറ്റിക്കായി ഇൻഡക്സ് ചെയ്യാൻ ---
+# --- 3. ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ബാക്ക്അപ്പ് ചാനലിലെ പഴയ ഫയലുകൾ ഇൻഡക്സ് ചെയ്യാൻ ---
 async def index_channel_files():
     try:
         async for message in bot.get_chat_history(BACKUP_CHANNEL_ID):
@@ -80,7 +81,6 @@ async def index_channel_files():
                 movie_name = caption.splitlines()[0] if caption else "Unknown Movie"
                 file_size = get_file_size(message)
                 
-                # ഡാറ്റാബേസിൽ ഇല്ലെങ്കിൽ മാത്രം ആഡ് ചെയ്യുക
                 if not any(m['message_id'] == message.id for m in MOVIES_DB):
                     MOVIES_DB.append({
                         'name': movie_name,
@@ -98,10 +98,8 @@ async def handle_admin_upload(client, message):
     cleaned_cap = clean_caption(caption)
     
     try:
-        # 1. മെയിൻ ചാനലിലേക്ക് അയക്കുന്നു
         sent_msg = await message.copy(chat_id=CHANNEL_ID, caption=cleaned_cap)
         
-        # 2. ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു
         backup_msg = await client.copy_message(
             chat_id=BACKUP_CHANNEL_ID,
             from_chat_id=CHANNEL_ID,
@@ -218,7 +216,6 @@ async def button_callback(client, callback_query):
                 from_chat_id=BACKUP_CHANNEL_ID,
                 message_id=msg_id
             )
-            # 5 മിനിറ്റിനു ശേഷം ഓട്ടോ ഡിലീറ്റ് ചെയ്യാൻ
             asyncio.create_task(delete_after_delay(client, callback_query.message.chat.id, forwarded.id, 300))
             await callback_query.message.reply("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
             await callback_query.answer()
@@ -244,14 +241,14 @@ async def start_cmd(client, message):
 
 if __name__ == "__main__":
     keep_alive()
-    print("Starting Pyrogram Movie Bot...")
+    print("Starting Pyrogram Movie Bot with Session String...")
     
-    # ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ചാനൽ ഫയലുകൾ ഓട്ടോ ഇൻഡക്സ് ചെയ്യാൻ കോറൂട്ടിൻ ചേർക്കുന്നു
+    # ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ഇൻഡക്സിങ് റൺ ചെയ്യാൻ
     async def main():
         async with bot:
             print("Indexing old files from backup channel...")
             await index_channel_files()
-            print("Bot is fully active and listening for messages...")
-            await asyncio.Future()  # ബോട്ട് റൺ ചെയ്തുകൊണ്ടിരിക്കാൻ
+            print("Bot is fully active!")
+            await asyncio.Future()
 
     asyncio.run(main())
