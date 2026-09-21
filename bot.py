@@ -4,8 +4,8 @@ import re
 import logging
 from flask import Flask
 from threading import Thread
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from hydrogram import Client, filters
+from hydrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ലോഗിംഗ് സെറ്റപ്പ്
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
 API_ID = 39140696  
 API_HASH = "64757b9724e7143c5cc554d7a776334b"  
-BOT_TOKEN = "8973220687:AAGLKNg7_EudKHdur5ByFR_dlELLhn15Sb8"
+BOT_TOKEN = "8973220687:AAHWJAJr8q7yCRzRRa0iRWiL-GIUbrSqRr0"
 SESSION_STRING = "BQJVPVgAC506aVEIB8oiezA2ZOuQc6IAkl9s_XW5nvCFSyNrnzSnR7aPgvgtM6uWYGL-GNqnqo-1hPU6aXwklftYWZVyYPmktJu2sQXgZYl_oPLcCeQFKYPEeHGCt_aGqv2vT_jW9wbW_QwOXaE3fwpq6wtE-CuCqQiNE9vtxI3CTra1PpNEXmUtaxV0M0vfv2fzX5_WP6oszXBp5e7IWdR7RJdCvy6VKY-2hOxRYDslFdgXNZEzfZNL-BsKhD1TGub8nNjyEBvVGmAvaCMlPjbyTuxv_nzjzLxxBbSSlSma7916CBiXSlB-bp1b5VWvnLsc67lk47CXHAYTePHup1aEiN772QAAAAGtHKplAA"
 
 # ചാനൽ ഐഡികൾ
@@ -41,7 +41,7 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. Pyrogram Client ---
+# --- 2. Hydrogram Client ---
 bot = Client(
     "movie_bot_session",
     api_id=API_ID,
@@ -71,7 +71,6 @@ def get_file_size(message):
 
 async def index_channel_files():
     try:
-        # ചാനലുകൾ int() ആക്കി കാഷെ ചെയ്യുന്നു
         await bot.get_chat(int(CHANNEL_ID))
         await bot.get_chat(int(BACKUP_CHANNEL_ID))
         
@@ -235,7 +234,7 @@ async def start_cmd(client, message):
 
 async def main():
     keep_alive()
-    print("Starting Pyrogram Movie Bot...")
+    print("Starting Hydrogram Movie Bot...")
     async with bot:
         print("Indexing old files from backup channel...")
         await index_channel_files()
