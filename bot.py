@@ -4,26 +4,34 @@ import logging
 import asyncio
 from flask import Flask
 from threading import Thread
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ChatJoinRequest
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, ChatJoinRequestHandler, CallbackQueryHandler, filters
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ലോഗിംഗ് സെറ്റപ്പ്
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# പുതിയ ബോട്ട് ടോക്കണും മറ്റ് വിവരങ്ങളും
-TOKEN = "8973220687:AAHDy_-lAL7hyiJtja59XzXRvOHibEzTTjU"
-CHANNEL_ID = -1004332383599        # മെയിൻ പ്രൈവറ്റ് ചാനൽ ഐഡി
+# --- കോൺഫിഗറേഷൻ വിവരങ്ങൾ ---
+API_ID = int(os.getenv("API_ID", 39140696))
+API_HASH = os.getenv("API_HASH", "64757b9724e7143c5cc554d7a776334b")
+BOT_TOKEN = "8729393771:AAG0wTxRCIqNKfomfXV7-lCEzWEkVGxepn0"
+
+# നിങ്ങൾ തന്ന സെഷൻ സ്ട്രിങ് ഇവിടെ നേരിട്ട് ചേർത്തിരിക്കുന്നു
+SESSION_STRING = "BQJVPVgAwc3boJ7aTpurbBFc0Fr12QKMVkCkT1dQ6QBi25nJzCrS0Vvg1YxNPisH8WR2mnUEYTGGRk4WVlu6Ydv69eFO-WMKIfL13kQBok3jJyHmDWEF4qnqUXOQXbsnjQNoVoSDEjdxd8AxUApcAV-d1YPTlVvXhdVd-_NNCCNQ--qFL7FrZtGPi1kCklzS-OEaByn8O9PIn4b-Gw9WQGEOik5KMJ4q_-GjS-oWu7EvjmZJt3V_nhF4f7TAKbayGhzbxqu6RwB31SP5bSL8CdomaV7n5v3WA-QhzGBGDjgFghjA3kkdfhbwYDNWcZAlqEMANzg6AW1jvRBzc_ZoEulO67pXlAAAAAGtHKplAA"
+
+CHANNEL_ID = -1004332383599        # മെയിൻ ചാനൽ ഐഡി
 BACKUP_CHANNEL_ID = -1004433067284   # ബാക്ക്അപ്പ് ചാനൽ ഐഡി
 ADMIN_USER_ID = 7199304293
 MAIN_CHANNEL_LINK = "https://t.me/moviechannelsfree"
+
+MOVIES_DB = []
 
 # --- 1. HTTP Web Service (Render-ന് വേണ്ടി) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Movie Search Bot is running live!"
+    return "Movie Search Bot (Pyrogram) is running live!"
 
 def run_http_server():
     port = int(os.environ.get("PORT", 8080))
@@ -34,7 +42,15 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 2. ക്യാപ്ഷൻ ക്ലീൻ ചെയ്യാനുള്ള ഫങ്ഷൻ ---
+# --- 2. Pyrogram Client Initialization (Session String ഉപയോഗിച്ച്) ---
+bot = Client(
+    "movie_bot_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
+
+# ക്യാപ്ഷൻ ക്ലീൻ ചെയ്യാനുള്ള ഫങ്ഷൻ
 def clean_caption(caption: str) -> str:
     if not caption:
         return "🎬 New Movie Added!"
@@ -44,164 +60,198 @@ def clean_caption(caption: str) -> str:
     cleaned = '\n'.join([line.strip() for line in cleaned.splitlines() if line.strip()])
     return cleaned if cleaned else "🎬 New Movie Added!"
 
-# --- 3. Auto Accept Join Requests ---
-async def auto_accept(update: ChatJoinRequest, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        await update.approve()
-        logger.info(f"Approved join request for user: {update.from_user.id}")
-    except Exception as e:
-        logger.error(f"Failed to approve join request: {e}")
-
-# --- 4. /admin കമാൻഡ് ---
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user.id == ADMIN_USER_ID:
-        context.user_data['admin_mode'] = True
-        await update.message.reply_text(
-            "🛠️ **Admin Panel Activated!**\n\n"
-            "You can now send movie files/posters to upload them to the channels.\n"
-            "To exit admin mode and use normal search, type `/exit`."
-        )
+# ഫയൽ സൈസ് കണക്കാക്കാൻ
+def get_file_size(message):
+    media = message.document or message.video
+    if not media:
+        return "Unknown Size"
+    size_mb = media.file_size / (1024 * 1024)
+    if size_mb >= 1024:
+        return f"{size_mb / 1024:.2f} GB"
     else:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
+        return f"{size_mb:.1f} MB"
 
-# --- 5. /exit കമാൻഡ് ---
-async def exit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user.id == ADMIN_USER_ID:
-        context.user_data['admin_mode'] = False
-        await update.message.reply_text("🔒 **Admin Panel Closed.** Bot is back to normal search mode.")
-
-# --- 6. മെസ്സേജുകൾ ഹാൻഡിൽ ചെയ്യുന്ന ഭാഗം ---
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    if not message:
-        return
-
-    user = message.from_user
-    chat = message.chat
-
-    if chat.type == "private":
-        if user.id == ADMIN_USER_ID and context.user_data.get('admin_mode', False):
+# --- 3. ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ചാനലിലെ പഴയ ഫയലുകൾ ഓട്ടോമാറ്റിക്കായി ഇൻഡക്സ് ചെയ്യാൻ ---
+async def index_channel_files():
+    try:
+        async for message in bot.get_chat_history(BACKUP_CHANNEL_ID):
             if message.document or message.video or message.photo:
-                caption = message.caption or message.text or ""
-                cleaned_cap = clean_caption(caption)
-                movie_name = cleaned_cap.splitlines()[0] if cleaned_cap else "Unknown Movie"
-
-                try:
-                    sent_msg = None
-                    if message.photo:
-                        sent_msg = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=message.photo[-1].file_id, caption=cleaned_cap)
-                    elif message.document:
-                        sent_msg = await context.bot.send_document(chat_id=CHANNEL_ID, document=message.document.file_id, caption=cleaned_cap)
-                    elif message.video:
-                        sent_msg = await context.bot.send_video(chat_id=CHANNEL_ID, video=message.video.file_id, caption=cleaned_cap)
-                    
-                    if sent_msg:
-                        backup_msg = await context.bot.copy_message(
-                            chat_id=BACKUP_CHANNEL_ID,
-                            from_chat_id=CHANNEL_ID,
-                            message_id=sent_msg.message_id
-                        )
-                        
-                        if 'movies_db' not in context.bot_data:
-                            context.bot_data['movies_db'] = []
-                        
-                        context.bot_data['movies_db'].append({
-                            'name': movie_name,
-                            'message_id': backup_msg.message_id
-                        })
-                        
-                    await message.reply_text("✨ Success! Movie uploaded to channels and added to search database.")
-                except Exception as e:
-                    logger.error(f"Upload error: {e}")
-                    await message.reply_text("❌ Error: Failed to upload file. Check bot admin permissions.")
-            else:
-                await message.reply_text("👋 Admin Mode is ON. Send any movie file/poster to upload, or type `/exit` to close.")
-        
-        else:
-            query_text = message.text
-            if not query_text or query_text.startswith("/"):
-                return
-
-            movies_db = context.bot_data.get('movies_db', [])
-            matched_movies = [m for m in movies_db if query_text.lower() in m['name'].lower()]
-
-            keyboard = [[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]]
-            
-            if matched_movies:
-                buttons = []
-                for movie in matched_movies[:5]:
-                    buttons.append([InlineKeyboardButton(f"📥 {movie['name']}", callback_data=f"get_{movie['message_id']}")])
+                caption = message.caption or ""
+                movie_name = caption.splitlines()[0] if caption else "Unknown Movie"
+                file_size = get_file_size(message)
                 
-                buttons.append([InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)])
-                reply_markup = InlineKeyboardMarkup(buttons)
-                
-                await message.reply_text(
-                    f"🎬 Search Results for '{query_text}':\nSelect your movie below:",
-                    reply_markup=reply_markup
-                )
-            else:
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await message.reply_text(
-                    "❌ Sorry, no movies found matching your search.\n\nPlease join our main channel for more updates:",
-                    reply_markup=reply_markup
-                )
+                # ഡാറ്റാബേസിൽ ഇല്ലെങ്കിൽ മാത്രം ആഡ് ചെയ്യുക
+                if not any(m['message_id'] == message.id for m in MOVIES_DB):
+                    MOVIES_DB.append({
+                        'name': movie_name,
+                        'size': file_size,
+                        'message_id': message.id
+                    })
+        logger.info(f"Successfully indexed {len(MOVIES_DB)} movies from backup channel.")
+    except Exception as e:
+        logger.error(f"Error indexing files: {e}")
 
-# --- 7. ബട്ടൺ ക്ലിക്ക് ചെയ്യുമ്പോൾ ഫയൽ അയച്ചുകൊടുക്കുന്ന ഭാഗം ---
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# --- 4. അഡ്മിൻ ഫയൽ അപ്‌ലോഡ് ഹാൻഡ്ലർ ---
+@bot.on_message(filters.private & filters.user(ADMIN_USER_ID) & (filters.document | filters.video | filters.photo))
+async def handle_admin_upload(client, message):
+    caption = message.caption or message.text or ""
+    cleaned_cap = clean_caption(caption)
     
-    data = query.data
-    if data.startswith("get_"):
-        msg_id = int(data.split("_")[1])
+    try:
+        # 1. മെയിൻ ചാനലിലേക്ക് അയക്കുന്നു
+        sent_msg = await message.copy(chat_id=CHANNEL_ID, caption=cleaned_cap)
+        
+        # 2. ബാക്ക്അപ്പ് ചാനലിലേക്ക് കോപ്പി ചെയ്യുന്നു
+        backup_msg = await client.copy_message(
+            chat_id=BACKUP_CHANNEL_ID,
+            from_chat_id=CHANNEL_ID,
+            message_id=sent_msg.id
+        )
+        
+        movie_name = cleaned_cap.splitlines()[0] if cleaned_cap else "Unknown Movie"
+        file_size = get_file_size(message)
+        
+        MOVIES_DB.append({
+            'name': movie_name,
+            'size': file_size,
+            'message_id': backup_msg.id
+        })
+        
+        await message.reply("✨ Success! Movie uploaded to channels and added to search index.")
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        await message.reply("❌ Error: Failed to upload file. Check bot admin rights.")
+
+# --- 5. യൂസർ മൂവി ചോദിച്ചു വരുമ്പോൾ (Search & Pagination) ---
+@bot.on_message(filters.private & ~filters.user(ADMIN_USER_ID) & filters.text)
+async def handle_user_search(client, message):
+    query_text = message.text
+    if not query_text or query_text.startswith("/"):
+        return
+    
+    matched_movies = [m for m in MOVIES_DB if query_text.lower() in m['name'].lower()]
+    
+    if matched_movies:
+        client.storage_results = getattr(client, 'storage_results', {})
+        client.storage_results[message.from_user.id] = matched_movies
+        await send_movie_page(client, message.chat.id, matched_movies, page=0)
+    else:
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]])
+        await message.reply(
+            "❌ Sorry, no movies found matching your search.\n\nPlease join our main channel for more updates:",
+            reply_markup=keyboard
+        )
+
+async def send_movie_page(client, chat_id, movies, page=0):
+    items_per_page = 5
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    current_movies = movies[start_idx:end_idx]
+    
+    keyboard_buttons = []
+    for m in current_movies:
+        btn_text = f"📥 {m['name']} ({m['size']})"
+        keyboard_buttons.append([InlineKeyboardButton(btn_text, callback_data=f"get_mov_{m['message_id']}")])
+    
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data=f"page_{page-1}"))
+    if end_idx < len(movies):
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard_buttons.append(nav_buttons)
+        
+    keyboard_buttons.append([InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)])
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+    
+    text = f"🎬 Search Results (Page {page+1}):\nSelect your movie below:"
+    await client.send_message(chat_id, text, reply_markup=reply_markup)
+
+# --- 6. ബട്ടൺ ക്ലിക്കുകൾ ഹാൻഡിൽ ചെയ്യാൻ (Pagination & 5 Min Auto-Delete) ---
+@bot.on_callback_query()
+async def button_callback(client, callback_query):
+    data = callback_query.data
+    user_id = callback_query.from_user.id
+    
+    if data.startswith("page_"):
+        page = int(data.split("_")[1])
+        matched_movies = getattr(client, 'storage_results', {}).get(user_id, [])
+        
+        if matched_movies:
+            items_per_page = 5
+            start_idx = page * items_per_page
+            end_idx = start_idx + items_per_page
+            current_movies = matched_movies[start_idx:end_idx]
+            
+            keyboard_buttons = []
+            for m in current_movies:
+                btn_text = f"📥 {m['name']} ({m['size']})"
+                keyboard_buttons.append([InlineKeyboardButton(btn_text, callback_data=f"get_mov_{m['message_id']}")])
+            
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data=f"page_{page-1}"))
+            if end_idx < len(matched_movies):
+                nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"page_{page+1}"))
+            
+            if nav_buttons:
+                keyboard_buttons.append(nav_buttons)
+                
+            keyboard_buttons.append([InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)])
+            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+            
+            try:
+                await callback_query.message.edit_text(
+                    f"🎬 Search Results (Page {page+1}):\nSelect your movie below:",
+                    reply_markup=reply_markup
+                )
+            except Exception:
+                pass
+        await callback_query.answer()
+
+    elif data.startswith("get_mov_"):
+        msg_id = int(data.split("_")[2])
         try:
-            forwarded = await context.bot.copy_message(
-                chat_id=query.message.chat.id,
+            forwarded = await client.copy_message(
+                chat_id=callback_query.message.chat.id,
                 from_chat_id=BACKUP_CHANNEL_ID,
                 message_id=msg_id
             )
-            
-            asyncio.create_task(delete_after_delay(context, query.message.chat.id, forwarded.message_id, 300))
-            
-            await query.message.reply_text("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
+            # 5 മിനിറ്റിനു ശേഷം ഓട്ടോ ഡിലീറ്റ് ചെയ്യാൻ
+            asyncio.create_task(delete_after_delay(client, callback_query.message.chat.id, forwarded.id, 300))
+            await callback_query.message.reply("⚡ Here is your movie! Note: This file will auto-delete in 5 minutes due to copyright.")
+            await callback_query.answer()
         except Exception as e:
             logger.error(f"Error sending file: {e}")
-            await query.message.reply_text("❌ Failed to fetch movie file!")
+            await callback_query.answer("❌ Failed to fetch movie file!", show_alert=True)
 
-async def delete_after_delay(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int):
+async def delete_after_delay(client, chat_id, message_id, delay):
     await asyncio.sleep(delay)
     try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await client.delete_messages(chat_id=chat_id, message_ids=message_id)
     except Exception as e:
         logger.error(f"Auto-delete failed: {e}")
 
 # സ്റ്റാർട്ട് കമാൻഡ്
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "👋 Welcome! Send me the name of the movie you want to search, and I will find it for you.",
-        reply_markup=reply_markup
+@bot.on_message(filters.private & filters.command("start"))
+async def start_cmd(client, message):
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join Main Channel", url=MAIN_CHANNEL_LINK)]])
+    await message.reply(
+        "👋 Welcome! Send me the name of the movie you want, and I will find it for you.",
+        reply_markup=keyboard
     )
 
-def main():
-    # ഫ്ലാസ്ക് വെബ് സർവർ ബാക്ക്ഗ്രൗണ്ടിൽ സ്റ്റാർട്ട് ചെയ്യുന്നു
+if __name__ == "__main__":
     keep_alive()
+    print("Starting Pyrogram Movie Bot...")
+    
+    # ബോട്ട് സ്റ്റാർട്ട് ചെയ്യുമ്പോൾ ചാനൽ ഫയലുകൾ ഓട്ടോ ഇൻഡക്സ് ചെയ്യാൻ കോറൂട്ടിൻ ചേർക്കുന്നു
+    async def main():
+        async with bot:
+            print("Indexing old files from backup channel...")
+            await index_channel_files()
+            print("Bot is fully active and listening for messages...")
+            await asyncio.Future()  # ബോട്ട് റൺ ചെയ്തുകൊണ്ടിരിക്കാൻ
 
-    application = ApplicationBuilder().token(TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("admin", admin_command))
-    application.add_handler(CommandHandler("exit", exit_command))
-    application.add_handler(ChatJoinRequestHandler(auto_accept))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.PRIVATE, handle_message))
-    application.add_handler(MessageHandler(filters.PHOTO | filters.DOCUMENT | filters.VIDEO & filters.PRIVATE, handle_message))
-    application.add_handler(CallbackQueryHandler(button_callback))
-
-    print("Movie Search Bot is starting...")
-    application.run_polling()
-
-if __name__ == '__main__':
-    main()
+    asyncio.run(main())
